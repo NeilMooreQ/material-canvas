@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const DATA_URL = "/data/assets.json";
-const STORAGE_KEY = "quixel-asset-canvas-react-v2";
+const LEGACY_STORAGE_KEY = "quixel-asset-canvas-react-v2";
+const PROFILES_STORAGE_KEY = "quixel-asset-canvas-profiles-v1";
+const PROFILE_EXPORT_VERSION = 1;
+const DEFAULT_PROFILE_NAME = "Мой профиль";
 
 const CARD_W = 180;
 const CARD_H = 238;
@@ -12,6 +15,17 @@ const NOTE_H = 72;
 const GROUP_GAP = 104;
 const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 4.25;
+const DEFAULT_VIEW = { x: 32, y: 34, scale: 0.78 };
+const DEFAULT_SETTINGS = {
+  hideUnpurchased: true,
+  enabledTypes: ["material"],
+  categoryFilter: "",
+  removePinnedOnDrag: true,
+  showOriginalTitle: false,
+  pinnedFan: false,
+  staticGridBackground: true,
+  theme: "dark",
+};
 
 const TYPE_LABELS = {
   material: "Materials",
@@ -20,6 +34,12 @@ const TYPE_LABELS = {
 };
 
 const TYPE_ORDER = ["material", "decal", "brush"];
+
+const THEME_OPTIONS = [
+  { value: "light", label: "Светлая" },
+  { value: "mixed", label: "Светлая с темным" },
+  { value: "dark", label: "Темная" },
+];
 
 function normalizeText(value) {
   return String(value || "")
@@ -48,6 +68,190 @@ function clamp(value, min, max) {
 
 function pluralAsset(count) {
   return count === 1 ? "asset" : "assets";
+}
+
+function russianPlural(count, forms) {
+  const value = Math.abs(count) % 100;
+  const single = value % 10;
+  if (value > 10 && value < 20) return forms[2];
+  if (single > 1 && single < 5) return forms[1];
+  if (single === 1) return forms[0];
+  return forms[2];
+}
+
+function formatProfileTime(timestamp) {
+  const value = Number(timestamp);
+  if (!value) return "еще не сохранялся";
+  const deltaMs = Math.max(0, Date.now() - value);
+  const minute = 60 * 1000;
+  const hour = 60 * minute;
+  const day = 24 * hour;
+  if (deltaMs < minute) return "только что";
+  if (deltaMs < hour) {
+    const count = Math.floor(deltaMs / minute);
+    return `${count} ${russianPlural(count, ["минуту", "минуты", "минут"])} назад`;
+  }
+  if (deltaMs < day) {
+    const count = Math.floor(deltaMs / hour);
+    return `${count} ${russianPlural(count, ["час", "часа", "часов"])} назад`;
+  }
+  if (deltaMs < 7 * day) {
+    const count = Math.floor(deltaMs / day);
+    return `${count} ${russianPlural(count, ["день", "дня", "дней"])} назад`;
+  }
+  if (deltaMs < 14 * day) return "неделю назад";
+  const date = new Date(value);
+  const formatted = date.toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+  return date.getFullYear() === new Date().getFullYear()
+    ? formatted
+    : `${formatted} ${date.getFullYear()}`;
+}
+
+function makeProfileId() {
+  return `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeEnabledTypes(types) {
+  const next = Array.isArray(types)
+    ? types.filter(type => TYPE_ORDER.includes(type))
+    : DEFAULT_SETTINGS.enabledTypes;
+  return next.length ? Array.from(new Set(next)) : DEFAULT_SETTINGS.enabledTypes;
+}
+
+function normalizeTheme(theme) {
+  return THEME_OPTIONS.some(option => option.value === theme) ? theme : DEFAULT_SETTINGS.theme;
+}
+
+function sanitizeView(view) {
+  return {
+    x: Number.isFinite(Number(view?.x)) ? Number(view.x) : DEFAULT_VIEW.x,
+    y: Number.isFinite(Number(view?.y)) ? Number(view.y) : DEFAULT_VIEW.y,
+    scale: clamp(Number(view?.scale) || DEFAULT_VIEW.scale, MIN_ZOOM, MAX_ZOOM),
+  };
+}
+
+function sanitizeBoard(board, assetById) {
+  const pinnedIds = Array.isArray(board?.pinnedIds)
+    ? board.pinnedIds.filter(assetId => assetById.has(assetId))
+    : [];
+  const freeCopies = Array.isArray(board?.freeCopies)
+    ? board.freeCopies
+      .filter(copy => assetById.has(copy?.assetId))
+      .map((copy, index) => ({
+        copyId: String(copy.copyId || `copy-${Date.now()}-${index}`),
+        assetId: copy.assetId,
+        x: Number.isFinite(Number(copy.x)) ? Number(copy.x) : 0,
+        y: Number.isFinite(Number(copy.y)) ? Number(copy.y) : 0,
+      }))
+    : [];
+  return {
+    pinnedIds: Array.from(new Set(pinnedIds)),
+    freeCopies,
+    freeCopySeq: Math.max(Number(board?.freeCopySeq) || 1, freeCopies.length + 1, 1),
+  };
+}
+
+function createBlankProfile(name = DEFAULT_PROFILE_NAME, now = Date.now()) {
+  return {
+    id: makeProfileId(),
+    name: name.trim() || DEFAULT_PROFILE_NAME,
+    createdAt: now,
+    updatedAt: now,
+    view: { ...DEFAULT_VIEW },
+    settings: { ...DEFAULT_SETTINGS },
+    board: {
+      pinnedIds: [],
+      freeCopies: [],
+      freeCopySeq: 1,
+    },
+  };
+}
+
+function sanitizeProfile(profile, assetById, fallbackName = DEFAULT_PROFILE_NAME) {
+  const now = Date.now();
+  const settings = profile?.settings || {};
+  return {
+    id: String(profile?.id || makeProfileId()),
+    name: String(profile?.name || fallbackName).trim() || fallbackName,
+    createdAt: Number(profile?.createdAt) || now,
+    updatedAt: Number(profile?.updatedAt) || now,
+    view: sanitizeView(profile?.view),
+    settings: {
+      hideUnpurchased: settings.hideUnpurchased ?? DEFAULT_SETTINGS.hideUnpurchased,
+      enabledTypes: normalizeEnabledTypes(settings.enabledTypes),
+      categoryFilter: String(settings.categoryFilter || ""),
+      removePinnedOnDrag: settings.removePinnedOnDrag ?? DEFAULT_SETTINGS.removePinnedOnDrag,
+      showOriginalTitle: settings.showOriginalTitle ?? DEFAULT_SETTINGS.showOriginalTitle,
+      pinnedFan: settings.pinnedFan ?? DEFAULT_SETTINGS.pinnedFan,
+      staticGridBackground: settings.staticGridBackground ?? DEFAULT_SETTINGS.staticGridBackground,
+      theme: normalizeTheme(settings.theme),
+    },
+    board: sanitizeBoard(profile?.board, assetById),
+  };
+}
+
+function readLegacyBoard(assetById) {
+  try {
+    const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+    if (!raw) return null;
+    return sanitizeBoard(JSON.parse(raw), assetById);
+  } catch {
+    return null;
+  }
+}
+
+function loadProfileStore(assetById) {
+  try {
+    const raw = localStorage.getItem(PROFILES_STORAGE_KEY);
+    if (raw) {
+      const state = JSON.parse(raw);
+      const profiles = (Array.isArray(state.profiles) ? state.profiles : [])
+        .map((profile, index) => sanitizeProfile(profile, assetById, `Профиль ${index + 1}`));
+      if (profiles.length) {
+        const activeProfileId = profiles.some(profile => profile.id === state.activeProfileId)
+          ? state.activeProfileId
+          : profiles[0].id;
+        return { profiles, activeProfileId };
+      }
+    }
+  } catch {
+    // Fall through to the legacy/default profile.
+  }
+
+  const now = Date.now();
+  const profile = createBlankProfile(DEFAULT_PROFILE_NAME, now);
+  const legacyBoard = readLegacyBoard(assetById);
+  if (legacyBoard) profile.board = legacyBoard;
+  return { profiles: [profile], activeProfileId: profile.id };
+}
+
+function writeProfileStore(profiles, activeProfileId) {
+  localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify({
+    version: PROFILE_EXPORT_VERSION,
+    activeProfileId,
+    profiles,
+  }));
+}
+
+function makeUniqueProfileName(name, usedNames) {
+  const cleanName = String(name || DEFAULT_PROFILE_NAME).trim() || DEFAULT_PROFILE_NAME;
+  if (!usedNames.has(cleanName)) return cleanName;
+  let index = 2;
+  let nextName = `${cleanName} ${index}`;
+  while (usedNames.has(nextName)) {
+    index += 1;
+    nextName = `${cleanName} ${index}`;
+  }
+  return nextName;
+}
+
+function readProfilesFromPayload(payload, assetById) {
+  const rawProfiles = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.profiles)
+      ? payload.profiles
+      : [];
+  return rawProfiles.map((profile, index) => sanitizeProfile(profile, assetById, `Импорт ${index + 1}`));
 }
 
 function buildLayout(assets) {
@@ -121,84 +325,43 @@ function buildLayout(assets) {
   };
 }
 
-function usePersistentBoard(assetById) {
-  const [pinnedIds, setPinnedIds] = useState(() => new Set());
-  const [freeCopies, setFreeCopies] = useState([]);
-  const [freeCopySeq, setFreeCopySeq] = useState(1);
-  const [loaded, setLoaded] = useState(false);
-
-  useEffect(() => {
-    if (!assetById.size || loaded) return;
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (!raw) {
-        setLoaded(true);
-        return;
-      }
-      const state = JSON.parse(raw);
-      setPinnedIds(new Set((state.pinnedIds || []).filter(id => assetById.has(id))));
-      setFreeCopies((state.freeCopies || [])
-        .filter(copy => assetById.has(copy.assetId))
-        .map(copy => ({
-          copyId: copy.copyId,
-          assetId: copy.assetId,
-          x: Number(copy.x) || 0,
-          y: Number(copy.y) || 0,
-        })));
-      setFreeCopySeq(Math.max(Number(state.freeCopySeq) || 1, 1));
-      setLoaded(true);
-    } catch {
-      setLoaded(true);
-    }
-  }, [assetById, loaded]);
-
-  useEffect(() => {
-    if (!loaded) return;
-    const handle = window.setTimeout(() => {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({
-        pinnedIds: Array.from(pinnedIds),
-        freeCopies,
-        freeCopySeq,
-      }));
-    }, 150);
-    return () => window.clearTimeout(handle);
-  }, [pinnedIds, freeCopies, freeCopySeq, loaded]);
-
-  return {
-    pinnedIds,
-    setPinnedIds,
-    freeCopies,
-    setFreeCopies,
-    freeCopySeq,
-    setFreeCopySeq,
-  };
-}
-
 export default function App() {
   const viewportRef = useRef(null);
   const panRef = useRef(null);
   const freeDragRef = useRef(null);
   const handDragRef = useRef(null);
+  const profileFileInputRef = useRef(null);
+  const skipNextAutosaveRef = useRef(false);
 
   const [assets, setAssets] = useState([]);
   const [loadError, setLoadError] = useState("");
-  const [hideUnpurchased, setHideUnpurchased] = useState(true);
-  const [enabledTypes, setEnabledTypes] = useState(() => new Set(["material"]));
-  const [categoryFilter, setCategoryFilter] = useState("");
+  const [hideUnpurchased, setHideUnpurchased] = useState(DEFAULT_SETTINGS.hideUnpurchased);
+  const [enabledTypes, setEnabledTypes] = useState(() => new Set(DEFAULT_SETTINGS.enabledTypes));
+  const [categoryFilter, setCategoryFilter] = useState(DEFAULT_SETTINGS.categoryFilter);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [removePinnedOnDrag, setRemovePinnedOnDrag] = useState(true);
-  const [showOriginalTitle, setShowOriginalTitle] = useState(false);
+  const [profilesOpen, setProfilesOpen] = useState(false);
+  const [removePinnedOnDrag, setRemovePinnedOnDrag] = useState(DEFAULT_SETTINGS.removePinnedOnDrag);
+  const [showOriginalTitle, setShowOriginalTitle] = useState(DEFAULT_SETTINGS.showOriginalTitle);
+  const [pinnedFan, setPinnedFan] = useState(DEFAULT_SETTINGS.pinnedFan);
+  const [staticGridBackground, setStaticGridBackground] = useState(DEFAULT_SETTINGS.staticGridBackground);
+  const [theme, setTheme] = useState(DEFAULT_SETTINGS.theme);
   const [queryInput, setQueryInput] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
   const [nextMatchIndex, setNextMatchIndex] = useState(0);
   const [currentFocusId, setCurrentFocusId] = useState("");
-  const [view, setView] = useState({ x: 32, y: 34, scale: 0.78 });
+  const [view, setView] = useState(DEFAULT_VIEW);
   const [toast, setToast] = useState("");
   const [handGhost, setHandGhost] = useState(null);
   const [windowWidth, setWindowWidth] = useState(() => typeof window === "undefined" ? 1280 : window.innerWidth);
+  const [pinnedIds, setPinnedIds] = useState(() => new Set());
+  const [freeCopies, setFreeCopies] = useState([]);
+  const [freeCopySeq, setFreeCopySeq] = useState(1);
+  const [profiles, setProfiles] = useState([]);
+  const [activeProfileId, setActiveProfileId] = useState("");
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
+  const [profileNameInput, setProfileNameInput] = useState("");
 
   const assetById = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
-  const board = usePersistentBoard(assetById);
 
   useEffect(() => {
     let cancelled = false;
@@ -314,11 +477,11 @@ export default function App() {
   }, [layout.notes, viewportBounds]);
 
   const visibleFreeCopies = useMemo(() => {
-    return board.freeCopies.filter(copy => copy.x + CARD_W >= viewportBounds.left
+    return freeCopies.filter(copy => copy.x + CARD_W >= viewportBounds.left
       && copy.x <= viewportBounds.right
       && copy.y + CARD_H >= viewportBounds.top
       && copy.y <= viewportBounds.bottom);
-  }, [board.freeCopies, viewportBounds]);
+  }, [freeCopies, viewportBounds]);
 
   const setTypeEnabled = useCallback((type) => {
     setEnabledTypes(prev => {
@@ -333,8 +496,197 @@ export default function App() {
     setToast(message);
   }, []);
 
+  const applyProfileToState = useCallback((profile) => {
+    setView(profile.view);
+    setHideUnpurchased(profile.settings.hideUnpurchased);
+    setEnabledTypes(new Set(profile.settings.enabledTypes));
+    setCategoryFilter(profile.settings.categoryFilter);
+    setRemovePinnedOnDrag(profile.settings.removePinnedOnDrag);
+    setShowOriginalTitle(profile.settings.showOriginalTitle);
+    setPinnedFan(profile.settings.pinnedFan);
+    setStaticGridBackground(profile.settings.staticGridBackground);
+    setTheme(normalizeTheme(profile.settings.theme));
+    setPinnedIds(new Set(profile.board.pinnedIds));
+    setFreeCopies(profile.board.freeCopies);
+    setFreeCopySeq(profile.board.freeCopySeq);
+    setQueryInput("");
+    setActiveQuery("");
+    setNextMatchIndex(0);
+    setCurrentFocusId("");
+  }, []);
+
+  useEffect(() => {
+    if (!assetById.size || profilesLoaded) return;
+    const store = loadProfileStore(assetById);
+    const activeProfile = store.profiles.find(profile => profile.id === store.activeProfileId) || store.profiles[0];
+    setProfiles(store.profiles);
+    setActiveProfileId(activeProfile.id);
+    skipNextAutosaveRef.current = true;
+    applyProfileToState(activeProfile);
+    writeProfileStore(store.profiles, activeProfile.id);
+    setProfilesLoaded(true);
+  }, [applyProfileToState, assetById, profilesLoaded]);
+
+  const activeProfile = useMemo(() => {
+    return profiles.find(profile => profile.id === activeProfileId) || null;
+  }, [activeProfileId, profiles]);
+
+  const buildCurrentProfile = useCallback((baseProfile, savedAt = Date.now()) => {
+    const profile = baseProfile || createBlankProfile(DEFAULT_PROFILE_NAME, savedAt);
+    const cleanBoard = sanitizeBoard({
+      pinnedIds: Array.from(pinnedIds),
+      freeCopies,
+      freeCopySeq,
+    }, assetById);
+    return {
+      ...profile,
+      updatedAt: savedAt,
+      view: sanitizeView(view),
+      settings: {
+        hideUnpurchased,
+        enabledTypes: normalizeEnabledTypes(Array.from(enabledTypes)),
+        categoryFilter,
+        removePinnedOnDrag,
+        showOriginalTitle,
+        pinnedFan,
+        staticGridBackground,
+        theme,
+      },
+      board: cleanBoard,
+    };
+  }, [assetById, categoryFilter, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, pinnedFan, pinnedIds, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
+
+  const mergeCurrentIntoProfiles = useCallback((profileList, savedAt = Date.now()) => {
+    if (!activeProfileId) return profileList;
+    return profileList.map(profile => (
+      profile.id === activeProfileId ? buildCurrentProfile(profile, savedAt) : profile
+    ));
+  }, [activeProfileId, buildCurrentProfile]);
+
+  useEffect(() => {
+    if (!profilesLoaded || !activeProfileId) return undefined;
+    if (skipNextAutosaveRef.current) {
+      skipNextAutosaveRef.current = false;
+      return undefined;
+    }
+    const handle = window.setTimeout(() => {
+      setProfiles(prev => {
+        const next = mergeCurrentIntoProfiles(prev);
+        writeProfileStore(next, activeProfileId);
+        return next;
+      });
+    }, 500);
+    return () => window.clearTimeout(handle);
+  }, [activeProfileId, mergeCurrentIntoProfiles, profilesLoaded]);
+
+  const saveActiveProfile = useCallback((message = "") => {
+    if (!profilesLoaded || !activeProfileId) return;
+    const next = mergeCurrentIntoProfiles(profiles);
+    setProfiles(next);
+    writeProfileStore(next, activeProfileId);
+    if (message) showToast(message);
+  }, [activeProfileId, mergeCurrentIntoProfiles, profiles, profilesLoaded, showToast]);
+
+  const createProfile = useCallback((event) => {
+    event.preventDefault();
+    const savedProfiles = mergeCurrentIntoProfiles(profiles);
+    const usedNames = new Set(savedProfiles.map(profile => profile.name));
+    const name = makeUniqueProfileName(profileNameInput || `Профиль ${savedProfiles.length + 1}`, usedNames);
+    const profile = createBlankProfile(name);
+    const next = [...savedProfiles, profile];
+    setProfiles(next);
+    setActiveProfileId(profile.id);
+    setProfileNameInput("");
+    skipNextAutosaveRef.current = true;
+    applyProfileToState(profile);
+    writeProfileStore(next, profile.id);
+    showToast(`Профиль "${profile.name}" создан`);
+  }, [applyProfileToState, mergeCurrentIntoProfiles, profileNameInput, profiles, showToast]);
+
+  const loadProfile = useCallback((profileId) => {
+    const target = profiles.find(profile => profile.id === profileId);
+    if (!target || target.id === activeProfileId) return;
+    const next = mergeCurrentIntoProfiles(profiles);
+    setProfiles(next);
+    setActiveProfileId(target.id);
+    skipNextAutosaveRef.current = true;
+    applyProfileToState(target);
+    writeProfileStore(next, target.id);
+    showToast(`Профиль "${target.name}" загружен`);
+  }, [activeProfileId, applyProfileToState, mergeCurrentIntoProfiles, profiles, showToast]);
+
+  const deleteProfile = useCallback((profileId) => {
+    const target = profiles.find(profile => profile.id === profileId);
+    if (!target) return;
+    if (!window.confirm(`Удалить профиль "${target.name}"?`)) return;
+    const baseProfiles = profileId === activeProfileId ? profiles : mergeCurrentIntoProfiles(profiles);
+    let next = baseProfiles.filter(profile => profile.id !== profileId);
+    if (!next.length) next = [createBlankProfile(DEFAULT_PROFILE_NAME)];
+    const nextActive = profileId === activeProfileId
+      ? next[0]
+      : next.find(profile => profile.id === activeProfileId) || next[0];
+    setProfiles(next);
+    setActiveProfileId(nextActive.id);
+    skipNextAutosaveRef.current = true;
+    applyProfileToState(nextActive);
+    writeProfileStore(next, nextActive.id);
+    showToast(`Профиль "${target.name}" удален`);
+  }, [activeProfileId, applyProfileToState, mergeCurrentIntoProfiles, profiles, showToast]);
+
+  const downloadProfiles = useCallback(() => {
+    const next = mergeCurrentIntoProfiles(profiles);
+    setProfiles(next);
+    writeProfileStore(next, activeProfileId);
+    const payload = {
+      version: PROFILE_EXPORT_VERSION,
+      exportedAt: new Date().toISOString(),
+      activeProfileId,
+      profiles: next,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "quixel-material-canvas-profiles.json";
+    link.click();
+    URL.revokeObjectURL(url);
+    showToast("JSON с профилями скачан");
+  }, [activeProfileId, mergeCurrentIntoProfiles, profiles, showToast]);
+
+  const uploadProfiles = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      const importedProfiles = readProfilesFromPayload(payload, assetById);
+      if (!importedProfiles.length) throw new Error("profiles missing");
+      const savedProfiles = mergeCurrentIntoProfiles(profiles);
+      const usedNames = new Set(savedProfiles.map(profile => profile.name));
+      const importedIdMap = new Map();
+      const preparedProfiles = importedProfiles.map(profile => {
+        const id = makeProfileId();
+        importedIdMap.set(profile.id, id);
+        const name = makeUniqueProfileName(profile.name, usedNames);
+        usedNames.add(name);
+        return { ...profile, id, name };
+      });
+      const importedActiveId = importedIdMap.get(payload?.activeProfileId) || preparedProfiles[0].id;
+      const next = [...savedProfiles, ...preparedProfiles];
+      const activeImportedProfile = preparedProfiles.find(profile => profile.id === importedActiveId) || preparedProfiles[0];
+      setProfiles(next);
+      setActiveProfileId(activeImportedProfile.id);
+      skipNextAutosaveRef.current = true;
+      applyProfileToState(activeImportedProfile);
+      writeProfileStore(next, activeImportedProfile.id);
+      showToast(`Загружено профилей: ${preparedProfiles.length}`);
+    } catch {
+      showToast("Не удалось загрузить JSON профилей");
+    }
+  }, [applyProfileToState, assetById, mergeCurrentIntoProfiles, profiles, showToast]);
+
   const resetView = useCallback(() => {
-    setView({ x: 32, y: 34, scale: 0.78 });
+    setView(DEFAULT_VIEW);
   }, []);
 
   const centerOnAsset = useCallback((asset, requestedScale = 1.18) => {
@@ -387,21 +739,21 @@ export default function App() {
   }, [activeQuery]);
 
   const togglePinned = useCallback((assetId) => {
-    board.setPinnedIds(prev => {
+    setPinnedIds(prev => {
       const next = new Set(prev);
       if (next.has(assetId)) next.delete(assetId);
       else next.add(assetId);
       return next;
     });
-  }, [board]);
+  }, []);
 
   const createFreeCopy = useCallback((assetId, x, y) => {
-    board.setFreeCopySeq(seq => seq + 1);
-    board.setFreeCopies(prev => {
-      const copyId = `copy-${Date.now()}-${board.freeCopySeq}`;
+    setFreeCopySeq(seq => seq + 1);
+    setFreeCopies(prev => {
+      const copyId = `copy-${Date.now()}-${freeCopySeq}`;
       return [...prev, { copyId, assetId, x, y }];
     });
-  }, [board]);
+  }, [freeCopySeq]);
 
   const duplicateAsset = useCallback((assetId) => {
     const pos = layout.assetPositions.get(assetId);
@@ -411,8 +763,8 @@ export default function App() {
   }, [createFreeCopy, layout.assetPositions, showToast]);
 
   const deleteFreeCopy = useCallback((copyId) => {
-    board.setFreeCopies(prev => prev.filter(copy => copy.copyId !== copyId));
-  }, [board]);
+    setFreeCopies(prev => prev.filter(copy => copy.copyId !== copyId));
+  }, []);
 
   const screenToWorld = useCallback((clientX, clientY) => {
     const rect = viewportRef.current.getBoundingClientRect();
@@ -446,11 +798,11 @@ export default function App() {
       const drag = freeDragRef.current;
       const dx = (event.clientX - drag.startX) / view.scale;
       const dy = (event.clientY - drag.startY) / view.scale;
-      board.setFreeCopies(prev => prev.map(copy => copy.copyId === drag.copyId
+      setFreeCopies(prev => prev.map(copy => copy.copyId === drag.copyId
         ? { ...copy, x: drag.originX + dx, y: drag.originY + dy }
         : copy));
     }
-  }, [board, view.scale]);
+  }, [view.scale]);
 
   const endPointerGesture = useCallback(() => {
     panRef.current = null;
@@ -515,7 +867,7 @@ export default function App() {
       const point = screenToWorld(event.clientX, event.clientY);
       createFreeCopy(assetId, point.x - CARD_W / 2, point.y - CARD_H / 2);
       if (removePinnedOnDrag) {
-        board.setPinnedIds(prev => {
+        setPinnedIds(prev => {
           const next = new Set(prev);
           next.delete(assetId);
           return next;
@@ -530,16 +882,24 @@ export default function App() {
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
     };
-  }, [board, createFreeCopy, removePinnedOnDrag, screenToWorld, showToast]);
+  }, [createFreeCopy, removePinnedOnDrag, screenToWorld, showToast]);
 
   const matchButtonLabel = activeQuery && searchMatches.length
-    ? `Next ${nextMatchIndex + 1}/${searchMatches.length}`
-    : "Search";
+    ? `Далее ${nextMatchIndex + 1}/${searchMatches.length}`
+    : "Поиск";
 
   const activeSummary = `${filteredBaseAssets.length.toLocaleString("ru-RU")} / ${assets.length.toLocaleString("ru-RU")} assets`;
+  const dynamicGridSize = Math.max(12, 64 * view.scale);
+  const viewportGridStyle = staticGridBackground
+    ? undefined
+    : {
+      "--grid-size": `${dynamicGridSize}px`,
+      "--grid-x": `${view.x % dynamicGridSize}px`,
+      "--grid-y": `${view.y % dynamicGridSize}px`,
+    };
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell theme-${theme}`}>
       <Toolbar
         assetSummary={loadError ? "Load failed" : activeSummary}
         queryInput={queryInput}
@@ -549,6 +909,8 @@ export default function App() {
         matchCount={activeQuery ? searchMatches.length : null}
         settingsOpen={settingsOpen}
         setSettingsOpen={setSettingsOpen}
+        profilesOpen={profilesOpen}
+        setProfilesOpen={setProfilesOpen}
         typeCounts={typeCounts}
         enabledTypes={enabledTypes}
         onToggleType={setTypeEnabled}
@@ -561,12 +923,31 @@ export default function App() {
         setRemovePinnedOnDrag={setRemovePinnedOnDrag}
         showOriginalTitle={showOriginalTitle}
         setShowOriginalTitle={setShowOriginalTitle}
+        pinnedFan={pinnedFan}
+        setPinnedFan={setPinnedFan}
+        staticGridBackground={staticGridBackground}
+        setStaticGridBackground={setStaticGridBackground}
+        theme={theme}
+        setTheme={setTheme}
+        profiles={profiles}
+        activeProfile={activeProfile}
+        activeProfileId={activeProfileId}
+        profileNameInput={profileNameInput}
+        setProfileNameInput={setProfileNameInput}
+        onCreateProfile={createProfile}
+        onSaveProfile={() => saveActiveProfile("Профиль сохранен")}
+        onLoadProfile={loadProfile}
+        onDeleteProfile={deleteProfile}
+        onDownloadProfiles={downloadProfiles}
+        onUploadProfiles={uploadProfiles}
+        profileFileInputRef={profileFileInputRef}
         resetView={resetView}
       />
 
       <main
         ref={viewportRef}
-        className={`viewport ${panRef.current ? "is-panning" : ""}`}
+        className={`viewport ${staticGridBackground ? "grid-static" : "grid-dynamic"} ${panRef.current ? "is-panning" : ""}`}
+        style={viewportGridStyle}
         onPointerDown={handleViewportPointerDown}
         onPointerMove={handleViewportPointerMove}
         onPointerUp={endPointerGesture}
@@ -599,7 +980,7 @@ export default function App() {
                   x={pos.x}
                   y={pos.y}
                   kind="grid"
-                  isPinned={board.pinnedIds.has(asset.id)}
+                  isPinned={pinnedIds.has(asset.id)}
                   hasSearch={Boolean(activeQuery)}
                   isSearchMatch={!activeQuery || searchMatchSet.has(asset.id)}
                   isCurrent={currentFocusId === asset.id}
@@ -621,7 +1002,7 @@ export default function App() {
                   x={copy.x}
                   y={copy.y}
                   kind="free"
-                  isPinned={board.pinnedIds.has(asset.id)}
+                  isPinned={pinnedIds.has(asset.id)}
                   hasSearch={Boolean(activeQuery)}
                   isSearchMatch={!activeQuery || searchMatchSet.has(asset.id)}
                   isCurrent={currentFocusId === asset.id}
@@ -637,10 +1018,11 @@ export default function App() {
       </main>
 
       <Hand
-        pinnedIds={board.pinnedIds}
+        pinnedIds={pinnedIds}
         assetById={assetById}
         windowWidth={windowWidth}
         showOriginalTitle={showOriginalTitle}
+        pinnedFan={pinnedFan}
         onRemove={(assetId) => togglePinned(assetId)}
         onDragStart={startHandDrag}
       />
@@ -663,6 +1045,8 @@ function Toolbar({
   matchCount,
   settingsOpen,
   setSettingsOpen,
+  profilesOpen,
+  setProfilesOpen,
   categoryFilter,
   setCategoryFilter,
   categories,
@@ -672,6 +1056,24 @@ function Toolbar({
   setRemovePinnedOnDrag,
   showOriginalTitle,
   setShowOriginalTitle,
+  pinnedFan,
+  setPinnedFan,
+  staticGridBackground,
+  setStaticGridBackground,
+  theme,
+  setTheme,
+  profiles,
+  activeProfile,
+  activeProfileId,
+  profileNameInput,
+  setProfileNameInput,
+  onCreateProfile,
+  onSaveProfile,
+  onLoadProfile,
+  onDeleteProfile,
+  onDownloadProfiles,
+  onUploadProfiles,
+  profileFileInputRef,
   resetView,
 }) {
   return (
@@ -697,15 +1099,46 @@ function Toolbar({
       </form>
 
       <div className="toolbar-controls">
-        <button className="icon-button" type="button" title="Reset view" aria-label="Reset view" onClick={resetView}>
+        <button className="icon-button" type="button" title="Сбросить вид" aria-label="Сбросить вид" onClick={resetView}>
           <ResetIcon />
         </button>
         <button
+          className={`icon-button profiles-button ${profilesOpen ? "is-active" : ""}`}
+          type="button"
+          title="Профили"
+          aria-label="Профили"
+          onClick={() => {
+            setSettingsOpen(false);
+            setProfilesOpen(open => !open);
+          }}
+        >
+          <ProfilesIcon />
+        </button>
+        {profilesOpen && (
+          <ProfilesPanel
+            profiles={profiles}
+            activeProfile={activeProfile}
+            activeProfileId={activeProfileId}
+            profileNameInput={profileNameInput}
+            setProfileNameInput={setProfileNameInput}
+            onCreateProfile={onCreateProfile}
+            onSaveProfile={onSaveProfile}
+            onLoadProfile={onLoadProfile}
+            onDeleteProfile={onDeleteProfile}
+            onDownloadProfiles={onDownloadProfiles}
+            onUploadProfiles={onUploadProfiles}
+            profileFileInputRef={profileFileInputRef}
+          />
+        )}
+        <button
           className={`icon-button settings-button ${settingsOpen ? "is-active" : ""}`}
           type="button"
-          title="Settings"
-          aria-label="Settings"
-          onClick={() => setSettingsOpen(open => !open)}
+          title="Настройки"
+          aria-label="Настройки"
+          onClick={() => {
+            setProfilesOpen(false);
+            setSettingsOpen(open => !open);
+          }}
         >
           <SettingsIcon />
         </button>
@@ -723,10 +1156,95 @@ function Toolbar({
             setRemovePinnedOnDrag={setRemovePinnedOnDrag}
             showOriginalTitle={showOriginalTitle}
             setShowOriginalTitle={setShowOriginalTitle}
+            pinnedFan={pinnedFan}
+            setPinnedFan={setPinnedFan}
+            staticGridBackground={staticGridBackground}
+            setStaticGridBackground={setStaticGridBackground}
+            theme={theme}
+            setTheme={setTheme}
           />
         )}
       </div>
     </header>
+  );
+}
+
+function ProfilesPanel({
+  profiles,
+  activeProfile,
+  activeProfileId,
+  profileNameInput,
+  setProfileNameInput,
+  onCreateProfile,
+  onSaveProfile,
+  onLoadProfile,
+  onDeleteProfile,
+  onDownloadProfiles,
+  onUploadProfiles,
+  profileFileInputRef,
+}) {
+  const sortedProfiles = profiles.slice().sort((a, b) => {
+    if (a.id === activeProfileId) return -1;
+    if (b.id === activeProfileId) return 1;
+    return Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
+  });
+
+  return (
+    <section className="profiles-popover" aria-label="Профили">
+      <div className="profile-current">
+        <span>Выбран:</span>
+        <strong>{activeProfile?.name || "Нет профиля"}</strong>
+        <small>Последнее сохранение: {formatProfileTime(activeProfile?.updatedAt)}</small>
+        <button className="panel-button" type="button" onClick={onSaveProfile}>Сохранить</button>
+      </div>
+
+      <form className="profile-create" onSubmit={onCreateProfile}>
+        <input
+          value={profileNameInput}
+          type="text"
+          autoComplete="off"
+          placeholder="Название профиля"
+          onChange={event => setProfileNameInput(event.target.value)}
+        />
+        <button className="panel-button" type="submit">Создать</button>
+      </form>
+
+      <div className="profile-list">
+        {sortedProfiles.map(profile => {
+          const isCurrent = profile.id === activeProfileId;
+          return (
+            <div className={`profile-row ${isCurrent ? "is-current" : ""}`} key={profile.id}>
+              <div>
+                <strong>{profile.name}</strong>
+                <small>{formatProfileTime(profile.updatedAt)}</small>
+              </div>
+              <div className="profile-row-actions">
+                {isCurrent ? (
+                  <span className="profile-current-badge">Текущий</span>
+                ) : (
+                  <button className="panel-button small" type="button" onClick={() => onLoadProfile(profile.id)}>Загрузить</button>
+                )}
+                <button className="card-icon delete-button" type="button" title="Удалить профиль" aria-label="Удалить профиль" onClick={() => onDeleteProfile(profile.id)}>
+                  <TrashIcon />
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="profile-file-actions">
+        <button className="panel-button" type="button" onClick={() => profileFileInputRef.current?.click()}>Загрузить профили</button>
+        <button className="panel-button" type="button" onClick={onDownloadProfiles}>Скачать JSON</button>
+        <input
+          ref={profileFileInputRef}
+          type="file"
+          accept="application/json,.json"
+          hidden
+          onChange={onUploadProfiles}
+        />
+      </div>
+    </section>
   );
 }
 
@@ -743,11 +1261,17 @@ function SettingsPanel({
   setRemovePinnedOnDrag,
   showOriginalTitle,
   setShowOriginalTitle,
+  pinnedFan,
+  setPinnedFan,
+  staticGridBackground,
+  setStaticGridBackground,
+  theme,
+  setTheme,
 }) {
   return (
-    <section className="settings-popover" aria-label="Settings panel">
+    <section className="settings-popover" aria-label="Настройки">
       <div className="settings-section">
-        <strong>Asset types</strong>
+        <strong>Типы ассетов</strong>
         <div className="settings-type-list">
           {TYPE_ORDER.map(type => (
             <label key={type} className="settings-check">
@@ -764,10 +1288,10 @@ function SettingsPanel({
       </div>
 
       <label className="settings-section">
-        <strong>Sub category</strong>
+        <strong>Подкатегория</strong>
         <select
           value={categoryFilter}
-          aria-label="Sub category"
+          aria-label="Подкатегория"
           onChange={event => setCategoryFilter(event.target.value)}
         >
           <option value="">Все подкатегории</option>
@@ -802,7 +1326,36 @@ function SettingsPanel({
           />
           <span>Показывать оригинальный title</span>
         </label>
+        <label className="settings-check">
+          <input
+            type="checkbox"
+            checked={pinnedFan}
+            onChange={event => setPinnedFan(event.target.checked)}
+          />
+          <span>Закрепленные карточки веером</span>
+        </label>
+        <label className="settings-check">
+          <input
+            type="checkbox"
+            checked={staticGridBackground}
+            onChange={event => setStaticGridBackground(event.target.checked)}
+          />
+          <span>Фон сетки статичный</span>
+        </label>
       </div>
+
+      <label className="settings-section">
+        <strong>Тема</strong>
+        <select
+          value={theme}
+          aria-label="Тема"
+          onChange={event => setTheme(normalizeTheme(event.target.value))}
+        >
+          {THEME_OPTIONS.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+      </label>
     </section>
   );
 }
@@ -895,7 +1448,7 @@ function AssetCard({
   );
 }
 
-function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, onRemove, onDragStart }) {
+function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan, onRemove, onDragStart }) {
   const pinnedAssets = Array.from(pinnedIds)
     .map(assetId => assetById.get(assetId))
     .filter(Boolean);
@@ -903,6 +1456,8 @@ function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, onRemove, 
   const step = pinnedAssets.length > 1
     ? clamp((availableWidth - 116) / (pinnedAssets.length - 1), 8, 104)
     : 0;
+  const maxAngle = pinnedFan && pinnedAssets.length > 1 ? clamp(3 + pinnedAssets.length * 0.16, 3, 6.5) : 0;
+  const maxLift = pinnedFan && pinnedAssets.length > 1 ? clamp(16 + pinnedAssets.length * 0.75, 18, 34) : 0;
 
   return (
     <aside className="hand" aria-label="Pinned assets">
@@ -910,12 +1465,21 @@ function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, onRemove, 
         {pinnedAssets.map((asset, index) => {
           const primaryTitle = showOriginalTitle ? asset.title : (asset.title_ru || asset.title);
           const secondaryTitle = showOriginalTitle ? asset.title_ru : "";
+          const progress = pinnedAssets.length > 1 ? index / (pinnedAssets.length - 1) : 0;
+          const wavePhase = progress * Math.PI * 2 - Math.PI / 2;
+          const wave = Math.sin(wavePhase);
+          const slope = Math.cos(wavePhase);
+          const spread = pinnedAssets.length > 1 ? (0.5 - progress) * 2 : 0;
+          const lift = pinnedFan ? Math.round((1 - Math.abs(spread)) * maxLift + Math.max(0, wave) * maxLift * 0.32) : 0;
+          const angle = pinnedFan ? slope * maxAngle * 0.6 + spread * maxAngle * 0.55 : 0;
           return (
             <div
               key={asset.id}
               className="hand-card"
               style={{
                 "--hand-index": index,
+                "--hand-y": `${-lift}px`,
+                "--hand-angle": `${angle.toFixed(2)}deg`,
               }}
               onPointerDown={(event) => onDragStart(event, asset.id)}
             >
@@ -967,6 +1531,10 @@ function HandGhost({ ghost, showOriginalTitle }) {
 
 function ResetIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.66-5.66L20 8.68V3h-5.68l1.93 1.93A10 10 0 1 0 22 14h-2a8 8 0 1 1-16-2Z" /></svg>;
+}
+
+function ProfilesIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a3 3 0 0 1 3-3h5.2a3 3 0 0 1 2.1.86L16.44 5H18a3 3 0 0 1 3 3v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V5h1Zm3-1a1 1 0 0 0-1 1v1h11.27l-2.39-2.39A1 1 0 0 0 14.17 3H7Zm-2 4v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8H5Zm7 2a2.4 2.4 0 0 1 1.9 3.86A4.2 4.2 0 0 1 16 17h-2a2 2 0 0 0-4 0H8a4.2 4.2 0 0 1 2.1-3.14A2.4 2.4 0 0 1 12 10Zm0 2a.4.4 0 1 0 0 .8.4.4 0 0 0 0-.8Z" /></svg>;
 }
 
 function SettingsIcon() {
