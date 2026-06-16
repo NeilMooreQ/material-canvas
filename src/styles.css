@@ -218,14 +218,44 @@ img {
 
 .search-bar input {
   width: 100%;
-  padding: 0 14px;
+  padding: 0 44px 0 14px;
   user-select: text;
+}
+
+.search-clear-button {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transform: translateY(-50%);
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.search-clear-button:hover,
+.search-clear-button:focus-visible {
+  border-color: var(--control-border);
+  background: var(--control-bg);
+  color: var(--text);
+  outline: none;
+}
+
+.search-clear-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .autocomplete-hint {
   position: absolute;
   top: 50%;
-  right: 9px;
+  right: 44px;
   display: inline-flex;
   align-items: center;
   gap: 6px;

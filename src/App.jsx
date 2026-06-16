@@ -54,6 +54,7 @@ const UI_TEXT = {
     loadError: "Data load failed",
     searchPlaceholder: "Asphalt",
     search: "Search",
+    clearSearch: "Clear search",
     next: "Next",
     matches: "matches",
     noMatches: "No matches",
@@ -120,6 +121,7 @@ const UI_TEXT = {
     loadError: "Ошибка загрузки данных",
     searchPlaceholder: "Асфальт",
     search: "Поиск",
+    clearSearch: "Очистить поиск",
     next: "Далее",
     matches: "совпадений",
     noMatches: "Совпадений нет",
@@ -1527,6 +1529,12 @@ function Toolbar({
   onUploadProfiles,
   profileFileInputRef,
 }) {
+  const searchInputRef = useRef(null);
+  const clearSearch = useCallback(() => {
+    setQueryInput("");
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
+  }, [setQueryInput]);
+
   return (
     <header className="toolbar">
       <div className="brand">
@@ -1540,6 +1548,7 @@ function Toolbar({
       <form className="search-bar" onSubmit={onSubmit}>
         <div className="search-input-wrap">
           <input
+            ref={searchInputRef}
             value={queryInput}
             type="search"
             autoComplete="off"
@@ -1547,6 +1556,18 @@ function Toolbar({
             onChange={event => setQueryInput(event.target.value)}
             onKeyDown={onSearchKeyDown}
           />
+          {queryInput && (
+            <button
+              className="search-clear-button"
+              type="button"
+              title={t.clearSearch}
+              aria-label={t.clearSearch}
+              onPointerDown={event => event.preventDefault()}
+              onClick={clearSearch}
+            >
+              <ClearIcon />
+            </button>
+          )}
           {searchSuggestion && (
             <div className="autocomplete-hint">
               <span>{searchSuggestion}</span>
@@ -2059,6 +2080,10 @@ function ResetIcon() {
 
 function QuestionIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm0 13.25a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4Zm.05-11.05c2.07 0 3.65 1.24 3.65 3.02 0 1.17-.55 1.93-1.62 2.68-.82.58-1.08.88-1.08 1.7v1.05h-2v-1.18c0-1.55.66-2.23 1.82-3.05.71-.5.88-.79.88-1.18 0-.6-.61-1.04-1.54-1.04-.98 0-1.67.48-2.19 1.25L8.35 8.32c.8-1.32 2.15-2.12 3.7-2.12Z" /></svg>;
+}
+
+function ClearIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6.4 5 5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6L6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5Z" /></svg>;
 }
 
 function ProfilesIcon() {
