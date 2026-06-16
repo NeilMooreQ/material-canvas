@@ -2486,6 +2486,8 @@ function AssetCard({
 }
 
 function Hand({ handRef, pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan, onRemove, onDragStart, t }) {
+  const hoverTimeoutRef = useRef(null);
+  const [activeHandCardId, setActiveHandCardId] = useState("");
   const pinnedAssets = Array.from(pinnedIds)
     .map(assetId => assetById.get(assetId))
     .filter(Boolean);
@@ -2495,6 +2497,22 @@ function Hand({ handRef, pinnedIds, assetById, windowWidth, showOriginalTitle, p
     : 0;
   const maxAngle = pinnedFan && pinnedAssets.length > 1 ? clamp(3 + pinnedAssets.length * 0.16, 3, 6.5) : 0;
   const maxLift = pinnedFan && pinnedAssets.length > 1 ? clamp(16 + pinnedAssets.length * 0.75, 18, 34) : 0;
+
+  const keepHandCardActive = useCallback((assetId) => {
+    window.clearTimeout(hoverTimeoutRef.current);
+    setActiveHandCardId(assetId);
+  }, []);
+
+  const releaseHandCardActive = useCallback((assetId) => {
+    window.clearTimeout(hoverTimeoutRef.current);
+    hoverTimeoutRef.current = window.setTimeout(() => {
+      setActiveHandCardId(current => current === assetId ? "" : current);
+    }, 420);
+  }, []);
+
+  useEffect(() => {
+    return () => window.clearTimeout(hoverTimeoutRef.current);
+  }, []);
 
   return (
     <aside ref={handRef} className="hand" aria-label="Pinned assets">
@@ -2512,31 +2530,38 @@ function Hand({ handRef, pinnedIds, assetById, windowWidth, showOriginalTitle, p
           return (
             <div
               key={asset.id}
-              className="hand-card"
+              className={`hand-card-slot ${activeHandCardId === asset.id ? "is-active" : ""}`}
               style={{
                 "--hand-index": index,
+                "--hand-x": `${index * step}px`,
                 "--hand-y": `${-lift}px`,
                 "--hand-angle": `${angle.toFixed(2)}deg`,
               }}
-              onPointerDown={(event) => onDragStart(event, asset.id)}
             >
-              <div className="hand-card-title">
-                <span>{primaryTitle}</span>
-                {secondaryTitle && <small>{secondaryTitle}</small>}
-              </div>
-              <div className="hand-card-image">
-                <img src={asset.preview} alt="" draggable="false" referrerPolicy="no-referrer" />
-              </div>
-              <div className="hand-card-actions">
-                <button className="card-icon unpin-button" type="button" title={t.unpin} aria-label={t.unpin} onPointerDown={event => event.stopPropagation()} onClick={(event) => {
-                  event.stopPropagation();
-                  onRemove(asset.id);
-                }}>
-                  <UnpinIcon />
-                </button>
-                <a className="card-icon link-button" href={asset.url} target="_blank" rel="noreferrer" title={t.openFab} aria-label={t.openFab} onPointerDown={event => event.stopPropagation()}>
-                  <ExternalIcon />
-                </a>
+              <div
+                className="hand-card"
+                onPointerEnter={() => keepHandCardActive(asset.id)}
+                onPointerLeave={() => releaseHandCardActive(asset.id)}
+                onPointerDown={(event) => onDragStart(event, asset.id)}
+              >
+                <div className="hand-card-title">
+                  <span>{primaryTitle}</span>
+                  {secondaryTitle && <small>{secondaryTitle}</small>}
+                </div>
+                <div className="hand-card-image">
+                  <img src={asset.preview} alt="" draggable="false" referrerPolicy="no-referrer" />
+                </div>
+                <div className="hand-card-actions">
+                  <button className="card-icon unpin-button" type="button" title={t.unpin} aria-label={t.unpin} onPointerDown={event => event.stopPropagation()} onClick={(event) => {
+                    event.stopPropagation();
+                    onRemove(asset.id);
+                  }}>
+                    <UnpinIcon />
+                  </button>
+                  <a className="card-icon link-button" href={asset.url} target="_blank" rel="noreferrer" title={t.openFab} aria-label={t.openFab} onPointerDown={event => event.stopPropagation()}>
+                    <ExternalIcon />
+                  </a>
+                </div>
               </div>
             </div>
           );
