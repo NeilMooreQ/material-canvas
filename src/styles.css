@@ -356,7 +356,8 @@ img {
 }
 
 .settings-button.is-active,
-.profiles-button.is-active {
+.profiles-button.is-active,
+.shortcuts-button.is-active {
   color: var(--accent-strong);
   border-color: var(--button-border);
   background: var(--button-bg);
@@ -546,6 +547,31 @@ img {
   gap: 3px;
 }
 
+.profile-row > .profile-row-info {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.profile-row-info > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.profile-hotkey {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .profile-row-actions,
 .profile-file-actions {
   display: flex;
@@ -645,6 +671,10 @@ svg {
   cursor: grab;
 }
 
+.app-shell.is-focus-mode .viewport {
+  inset: 0;
+}
+
 .viewport.is-panning {
   cursor: grabbing;
 }
@@ -710,6 +740,61 @@ svg {
   box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32);
   backdrop-filter: blur(14px);
   pointer-events: auto;
+}
+
+.viewport-top-actions {
+  position: relative;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  pointer-events: auto;
+}
+
+.shortcuts-popover {
+  position: absolute;
+  top: 50px;
+  right: 0;
+  width: min(360px, calc(100vw - 28px));
+  display: grid;
+  gap: 12px;
+  padding: 13px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--popover-bg);
+  color: var(--text);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(18px);
+  pointer-events: auto;
+}
+
+.shortcuts-popover strong {
+  font-size: 13px;
+}
+
+.shortcut-list {
+  display: grid;
+  gap: 8px;
+}
+
+.shortcut-row {
+  display: grid;
+  grid-template-columns: minmax(86px, auto) minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-height: 28px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.shortcut-row kbd {
+  justify-self: start;
+  padding: 4px 7px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--accent-strong);
+  font-size: 11px;
+  font-weight: 900;
 }
 
 .category-jump {
@@ -1140,6 +1225,10 @@ svg {
   transform: translateY(0);
 }
 
+.app-shell.is-focus-mode .toast {
+  bottom: 18px;
+}
+
 @media (max-width: 1260px) {
   .toolbar {
     grid-template-columns: 1fr;
@@ -1153,6 +1242,10 @@ svg {
 
   .viewport {
     inset: 172px 0 146px 0;
+  }
+
+  .app-shell.is-focus-mode .viewport {
+    inset: 0;
   }
 }
 

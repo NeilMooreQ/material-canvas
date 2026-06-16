@@ -97,6 +97,15 @@ const UI_TEXT = {
     resetView: "Reset view",
     prevCategory: "Previous category",
     nextCategory: "Next category",
+    shortcuts: "Shortcuts",
+    shortcutsTitle: "Hotkeys",
+    shortcutItems: [
+      { keys: "Tab", label: "Accept autocomplete" },
+      { keys: "F3 / Ctrl+G", label: "Jump to the next search match" },
+      { keys: "F", label: "Reset view" },
+      { keys: "Space", label: "Toggle focus mode" },
+      { keys: "1-9", label: "Load profile by list order" },
+    ],
     openFab: "Open Fab listing",
     pin: "Pin asset",
     unpin: "Unpin asset",
@@ -104,6 +113,7 @@ const UI_TEXT = {
     deleteDuplicate: "Delete duplicate",
     freeCopyCreated: "Movable copy created",
     copyAdded: "Copy added to canvas",
+    copyReturnedToPinned: "Copy returned to pinned",
   },
   ru: {
     loadError: "Ошибка загрузки данных",
@@ -153,6 +163,15 @@ const UI_TEXT = {
     resetView: "Сбросить вид",
     prevCategory: "Предыдущая категория",
     nextCategory: "Следующая категория",
+    shortcuts: "Подсказки",
+    shortcutsTitle: "Горячие клавиши",
+    shortcutItems: [
+      { keys: "Tab", label: "Принять автодополнение" },
+      { keys: "F3 / Ctrl+G", label: "Перейти к следующему результату поиска" },
+      { keys: "F", label: "Сбросить вид" },
+      { keys: "Space", label: "Включить или выключить режим фокуса" },
+      { keys: "1-9", label: "Загрузить профиль по порядку в списке" },
+    ],
     openFab: "Open Fab listing",
     pin: "Pin asset",
     unpin: "Unpin asset",
@@ -160,6 +179,7 @@ const UI_TEXT = {
     deleteDuplicate: "Delete duplicate",
     freeCopyCreated: "Создана свободная копия",
     copyAdded: "Копия добавлена на доску",
+    copyReturnedToPinned: "Копия возвращена в pinned",
   },
 };
 
@@ -515,6 +535,7 @@ export default function App() {
   const panRef = useRef(null);
   const freeDragRef = useRef(null);
   const handDragRef = useRef(null);
+  const handRef = useRef(null);
   const profileFileInputRef = useRef(null);
   const skipNextAutosaveRef = useRef(false);
   const skipNextSearchResetRef = useRef(false);
@@ -526,6 +547,8 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState(DEFAULT_SETTINGS.categoryFilter);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profilesOpen, setProfilesOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [focusMode, setFocusMode] = useState(false);
   const [removePinnedOnDrag, setRemovePinnedOnDrag] = useState(DEFAULT_SETTINGS.removePinnedOnDrag);
   const [showOriginalTitle, setShowOriginalTitle] = useState(DEFAULT_SETTINGS.showOriginalTitle);
   const [pinnedFan, setPinnedFan] = useState(DEFAULT_SETTINGS.pinnedFan);
@@ -1036,12 +1059,34 @@ export default function App() {
       if (!event.ctrlKey && !event.metaKey && !event.altKey && (key === "f" || event.code === "KeyF") && !isEditableTarget(event.target)) {
         event.preventDefault();
         resetView();
+        return;
+      }
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && event.code === "Space" && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        setShortcutsOpen(false);
+        setFocusMode(prev => {
+          const next = !prev;
+          if (next) {
+            setSettingsOpen(false);
+            setProfilesOpen(false);
+          }
+          return next;
+        });
+        return;
+      }
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && /^Digit[1-9]$/.test(event.code) && !isEditableTarget(event.target)) {
+        const profileIndex = Number(event.code.slice(5)) - 1;
+        const profile = profiles[profileIndex];
+        if (profile) {
+          event.preventDefault();
+          loadProfile(profile.id);
+        }
       }
     }
 
     window.addEventListener("keydown", handleHotkey);
     return () => window.removeEventListener("keydown", handleHotkey);
-  }, [goToNextMatch, resetView]);
+  }, [goToNextMatch, loadProfile, profiles, resetView]);
 
   const togglePinned = useCallback((assetId) => {
     setPinnedIds(prev => {
@@ -1113,9 +1158,34 @@ export default function App() {
     }
   }, [view.scale]);
 
-  const endPointerGesture = useCallback(() => {
+  const endPointerGesture = useCallback((event) => {
+    const freeDrag = freeDragRef.current;
     panRef.current = null;
     freeDragRef.current = null;
+    if (!freeDrag || !event) return;
+
+    const handRect = handRef.current?.getBoundingClientRect();
+    const droppedOnHand = handRect
+      && handRect.width > 0
+      && handRect.height > 0
+      && event.clientX >= handRect.left
+      && event.clientX <= handRect.right
+      && event.clientY >= handRect.top
+      && event.clientY <= handRect.bottom;
+    if (!droppedOnHand) return;
+
+    setFreeCopies(prev => prev.filter(copy => copy.copyId !== freeDrag.copyId));
+    setPinnedIds(prev => {
+      if (prev.has(freeDrag.assetId)) return prev;
+      const next = new Set(prev);
+      next.add(freeDrag.assetId);
+      return next;
+    });
+    showToast(t.copyReturnedToPinned);
+  }, [showToast, t]);
+
+  const toggleShortcuts = useCallback(() => {
+    setShortcutsOpen(prev => !prev);
   }, []);
 
   const handleWheel = useCallback((event) => {
@@ -1143,6 +1213,7 @@ export default function App() {
     event.currentTarget.setPointerCapture(event.pointerId);
     freeDragRef.current = {
       copyId: copy.copyId,
+      assetId: copy.assetId,
       startX: event.clientX,
       startY: event.clientY,
       originX: copy.x,
@@ -1201,7 +1272,7 @@ export default function App() {
   const visibleAssetCount = visibleAssets.length;
   const activeAssetCount = activeAssets.length;
   const viewportZoom = Math.round(view.scale * 100);
-  const isCompactCardZoom = viewportZoom <= Math.round(COMPACT_CARD_ZOOM * 100);
+  const isCompactCardZoom = focusMode || viewportZoom <= Math.round(COMPACT_CARD_ZOOM * 100);
   const viewportStats = {
     zoom: viewportZoom,
     x: (-view.x / view.scale).toFixed(2),
@@ -1217,8 +1288,8 @@ export default function App() {
     };
 
   return (
-    <div className={`app-shell theme-${theme}`}>
-      <Toolbar
+    <div className={`app-shell theme-${theme} ${focusMode ? "is-focus-mode" : ""}`}>
+      {!focusMode && <Toolbar
         t={t}
         language={language}
         loadError={loadError}
@@ -1266,7 +1337,7 @@ export default function App() {
         onDownloadProfiles={downloadProfiles}
         onUploadProfiles={uploadProfiles}
         profileFileInputRef={profileFileInputRef}
-      />
+      />}
 
       <main
         ref={viewportRef}
@@ -1347,18 +1418,34 @@ export default function App() {
             })}
           </div>
         </div>
-        <div className="viewport-hud viewport-stats" aria-label="Положение канваса">
-          <span>Zoom: {viewportStats.zoom}</span>
-          <span>X: {viewportStats.x}</span>
-          <span>Y: {viewportStats.y}</span>
-        </div>
-        <div className="viewport-hud viewport-count" aria-label="Количество ассетов">
-          {t.visible}: {visibleAssetCount.toLocaleString("ru-RU")} / {activeAssetCount.toLocaleString("ru-RU")}
-        </div>
+        {!focusMode && (
+          <>
+            <div className="viewport-hud viewport-stats" aria-label="Положение канваса">
+              <span>Zoom: {viewportStats.zoom}</span>
+              <span>X: {viewportStats.x}</span>
+              <span>Y: {viewportStats.y}</span>
+            </div>
+            <div className="viewport-hud viewport-count" aria-label="Количество ассетов">
+              {t.visible}: {visibleAssetCount.toLocaleString("ru-RU")} / {activeAssetCount.toLocaleString("ru-RU")}
+            </div>
+          </>
+        )}
         <div className="viewport-actions" aria-label="Навигация по канвасу">
-          <button className="icon-button viewport-reset" type="button" title={`${t.resetView} (F)`} aria-label={t.resetView} onClick={resetView}>
-            <ResetIcon />
-          </button>
+          <div className="viewport-top-actions">
+            <button className="icon-button viewport-reset" type="button" title={`${t.resetView} (F)`} aria-label={t.resetView} onClick={resetView}>
+              <ResetIcon />
+            </button>
+            <button
+              className={`icon-button shortcuts-button ${shortcutsOpen ? "is-active" : ""}`}
+              type="button"
+              title={t.shortcuts}
+              aria-label={t.shortcuts}
+              onClick={toggleShortcuts}
+            >
+              <QuestionIcon />
+            </button>
+            {shortcutsOpen && <ShortcutsPanel t={t} />}
+          </div>
           <div className="category-jump">
             <button className="icon-button" type="button" title={t.prevCategory} aria-label={t.prevCategory} onClick={() => centerOnCategory(-1)}>
               <ChevronUpIcon />
@@ -1370,16 +1457,19 @@ export default function App() {
         </div>
       </main>
 
-      <Hand
-        pinnedIds={pinnedIds}
-        assetById={assetById}
-        windowWidth={windowWidth}
-        showOriginalTitle={showOriginalTitle}
-        pinnedFan={pinnedFan}
-        onRemove={(assetId) => togglePinned(assetId)}
-        onDragStart={startHandDrag}
-        t={t}
-      />
+      {!focusMode && (
+        <Hand
+          handRef={handRef}
+          pinnedIds={pinnedIds}
+          assetById={assetById}
+          windowWidth={windowWidth}
+          showOriginalTitle={showOriginalTitle}
+          pinnedFan={pinnedFan}
+          onRemove={(assetId) => togglePinned(assetId)}
+          onDragStart={startHandDrag}
+          t={t}
+        />
+      )}
 
       {handGhost && <HandGhost ghost={handGhost} showOriginalTitle={showOriginalTitle} t={t} />}
       {toast && <div className="toast is-visible">{toast}</div>}
@@ -1542,6 +1632,22 @@ function Toolbar({
   );
 }
 
+function ShortcutsPanel({ t }) {
+  return (
+    <section className="shortcuts-popover" aria-label={t.shortcutsTitle} onPointerDown={event => event.stopPropagation()}>
+      <strong>{t.shortcutsTitle}</strong>
+      <div className="shortcut-list">
+        {t.shortcutItems.map(item => (
+          <div className="shortcut-row" key={item.keys}>
+            <kbd>{item.keys}</kbd>
+            <span>{item.label}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ProfilesPanel({
   profiles,
   t,
@@ -1558,12 +1664,6 @@ function ProfilesPanel({
   onUploadProfiles,
   profileFileInputRef,
 }) {
-  const sortedProfiles = profiles.slice().sort((a, b) => {
-    if (a.id === activeProfileId) return -1;
-    if (b.id === activeProfileId) return 1;
-    return Number(b.updatedAt || 0) - Number(a.updatedAt || 0);
-  });
-
   return (
     <section className="profiles-popover" aria-label={t.profiles}>
       <div className="profile-current">
@@ -1585,13 +1685,16 @@ function ProfilesPanel({
       </form>
 
       <div className="profile-list">
-        {sortedProfiles.map(profile => {
+        {profiles.map((profile, index) => {
           const isCurrent = profile.id === activeProfileId;
           return (
             <div className={`profile-row ${isCurrent ? "is-current" : ""}`} key={profile.id}>
-              <div>
-                <strong>{profile.name}</strong>
-                <small>{formatProfileTime(profile.updatedAt, language)}</small>
+              <div className="profile-row-info">
+                {index < 9 && <span className="profile-hotkey">{index + 1}</span>}
+                <div>
+                  <strong>{profile.name}</strong>
+                  <small>{formatProfileTime(profile.updatedAt, language)}</small>
+                </div>
               </div>
               <div className="profile-row-actions">
                 {isCurrent ? (
@@ -1867,7 +1970,7 @@ function AssetCard({
   );
 }
 
-function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan, onRemove, onDragStart, t }) {
+function Hand({ handRef, pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan, onRemove, onDragStart, t }) {
   const pinnedAssets = Array.from(pinnedIds)
     .map(assetId => assetById.get(assetId))
     .filter(Boolean);
@@ -1879,7 +1982,7 @@ function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan,
   const maxLift = pinnedFan && pinnedAssets.length > 1 ? clamp(16 + pinnedAssets.length * 0.75, 18, 34) : 0;
 
   return (
-    <aside className="hand" aria-label="Pinned assets">
+    <aside ref={handRef} className="hand" aria-label="Pinned assets">
       <div className="hand-cards" style={{ "--hand-count": pinnedAssets.length, "--hand-step": `${step}px` }}>
         {pinnedAssets.map((asset, index) => {
           const primaryTitle = showOriginalTitle ? asset.title : (asset.title_ru || asset.title);
@@ -1951,6 +2054,10 @@ function HandGhost({ ghost, showOriginalTitle, t }) {
 
 function ResetIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 0 1 13.66-5.66L20 8.68V3h-5.68l1.93 1.93A10 10 0 1 0 22 14h-2a8 8 0 1 1-16-2Z" /></svg>;
+}
+
+function QuestionIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20Zm0 2a8 8 0 1 1 0 16 8 8 0 0 1 0-16Zm0 13.25a1.2 1.2 0 1 1 0 2.4 1.2 1.2 0 0 1 0-2.4Zm.05-11.05c2.07 0 3.65 1.24 3.65 3.02 0 1.17-.55 1.93-1.62 2.68-.82.58-1.08.88-1.08 1.7v1.05h-2v-1.18c0-1.55.66-2.23 1.82-3.05.71-.5.88-.79.88-1.18 0-.6-.61-1.04-1.54-1.04-.98 0-1.67.48-2.19 1.25L8.35 8.32c.8-1.32 2.15-2.12 3.7-2.12Z" /></svg>;
 }
 
 function ProfilesIcon() {
