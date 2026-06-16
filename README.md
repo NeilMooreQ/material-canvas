@@ -2,17 +2,33 @@
 
 Material Canvas is a static React/Vite reference board for browsing a large Quixel asset library. It is built for artists who need to search, compare, pin, and arrange materials, 3D models, decals, and brushes while working on different project profiles.
 
+[Read this document in Russian](README.ru.md)
+
 ![Material Canvas English UI](docs/screenshots/material-canvas-en.png)
 
 ## Features
 
-- Large zoomable canvas with asset cards grouped by category.
-- Search with autocomplete, highlighted matches, and next-result navigation.
-- Per-profile Local Storage persistence for zoom, viewport position, pinned cards, free canvas copies, search state, filters, theme, and language.
-- Pinned hand, draggable duplicate cards, category jump controls, and compact cards at far zoom levels.
+- Large zoomable canvas with asset cards grouped by localized category paths.
+- Search with autocomplete, recent search history, highlighted matches, and next-result navigation.
+- Per-profile Local Storage persistence for zoom, viewport position, pinned cards, free canvas copies, search state, filters, theme, language, and lightweight-card mode.
+- Pinned hand with safer hover behavior, larger controls, draggable duplicate cards, and optional fan layout.
+- Focus mode for a cleaner canvas view.
+- Category jump controls, reset view, visible asset counters, and compact cards at far zoom levels.
 - Asset type filtering for Materials, 3D Models, Decals, and Brushes.
+- Grouped subcategory selector with localized labels instead of repeated full paths.
 - English and Russian UI switcher.
 - Static hosting friendly: no backend server is required.
+
+## Hotkeys
+
+- `Tab` accepts search autocomplete.
+- `F3` or `Ctrl+G` jumps to the next search match.
+- `R` resets the canvas view.
+- `F` toggles Focus mode.
+- `/` opens or closes the shortcuts panel.
+- `E` toggles lightweight cards.
+- `Ctrl+Z` undoes the last canvas action.
+- `1-9` loads profiles by list order.
 
 ## Local Development
 
@@ -48,68 +64,15 @@ This repository includes a GitHub Actions workflow at `.github/workflows/pages.y
 The Vite config uses `base: "./"`, so the build works from GitHub Pages project URLs such as:
 
 ```text
-https://username.github.io/material_canvas/
+https://username.github.io/material-canvas/
 ```
 
 ## Data Notes
 
 The demo data in `public/data/assets.json` intentionally includes purchased-state examples. Profiles and user changes are not uploaded anywhere; they are saved only in the browser's Local Storage. Artists can export and import profile JSON files from the profile menu.
 
----
+## Credits And Feedback
 
-# Material Canvas на русском
+Material Canvas was developed with help from ChatGPT Codex.
 
-Material Canvas — статический React/Vite-инструмент для просмотра большой библиотеки Quixel-ассетов. Он помогает художнику искать, сравнивать, закреплять и раскладывать материалы, 3D-модели, декали и кисти по отдельным рабочим профилям.
-
-![Material Canvas Russian UI](docs/screenshots/material-canvas-ru.png)
-
-## Возможности
-
-- Большой zoomable canvas с карточками ассетов и группировкой по категориям.
-- Поиск с автодополнением, подсветкой совпадений и переходом к следующему результату.
-- Профили в Local Storage: сохраняются zoom, позиция canvas, закрепленные карточки, свободные копии, поиск, фильтры, тема и язык.
-- Pinned-рука, перетаскиваемые дубликаты, переходы по категориям и упрощенные карточки на дальнем зуме.
-- Фильтры по типам ассетов: Materials, 3D Models, Decals и Brushes.
-- Переключение интерфейса между английским и русским.
-- Можно хостить как обычный статический сайт, backend не нужен.
-
-## Локальный запуск
-
-```bash
-npm ci
-npm run dev
-```
-
-Открой локальный URL, который покажет Vite. Данные ассетов загружаются из:
-
-```text
-public/data/assets.json
-```
-
-## Сборка
-
-```bash
-npm run build
-npm run preview
-```
-
-Готовый сайт появится в папке `dist/`.
-
-## GitHub Pages
-
-В репозитории уже есть workflow `.github/workflows/pages.yml`.
-
-1. Залей репозиторий на GitHub.
-2. В настройках репозитория открой **Pages**.
-3. В **Source** выбери **GitHub Actions**.
-4. Сделай push в `master` или запусти workflow вручную.
-
-В `vite.config.js` стоит `base: "./"`, поэтому сборка работает из project URL GitHub Pages, например:
-
-```text
-https://username.github.io/material_canvas/
-```
-
-## Данные
-
-Файл `public/data/assets.json` намеренно содержит пример списка ассетов со статусом покупки. Профили и изменения пользователя никуда не отправляются: они сохраняются только в Local Storage браузера. Профили можно экспортировать и импортировать JSON-файлом из меню профилей.
+Issues, bug reports, and feature requests are welcome in the GitHub repository.

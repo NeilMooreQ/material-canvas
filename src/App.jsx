@@ -647,6 +647,21 @@ function formatCategoryPath(category, language = DEFAULT_SETTINGS.language) {
     .join(" > ");
 }
 
+function getAssetDisplayTitles(asset, language = DEFAULT_SETTINGS.language, showOriginalTitle = false) {
+  const originalTitle = asset.title || asset.title_ru || "";
+  const translatedTitle = asset.title_ru || asset.title || "";
+  if (showOriginalTitle) {
+    return {
+      primaryTitle: originalTitle,
+      secondaryTitle: translatedTitle && translatedTitle !== originalTitle ? translatedTitle : "",
+    };
+  }
+  return {
+    primaryTitle: language === "ru" ? translatedTitle : originalTitle,
+    secondaryTitle: "",
+  };
+}
+
 function getCategoryLeafLabel(category, language = DEFAULT_SETTINGS.language) {
   const parts = splitCategoryPath(category);
   const leaf = parts.at(-1);
@@ -1761,6 +1776,7 @@ export default function App() {
                   isSearchMatch={!activeQuery || searchMatchSet.has(asset.id)}
                   isCurrent={currentFocusId === asset.id}
                   showOriginalTitle={showOriginalTitle}
+                  language={language}
                   isCompact={isCompactCardZoom}
                   t={t}
                   onTogglePinned={() => togglePinned(asset.id)}
@@ -1785,6 +1801,7 @@ export default function App() {
                   isSearchMatch={!activeQuery || searchMatchSet.has(asset.id)}
                   isCurrent={currentFocusId === asset.id}
                   showOriginalTitle={showOriginalTitle}
+                  language={language}
                   isCompact={isCompactCardZoom}
                   t={t}
                   onTogglePinned={() => togglePinned(asset.id)}
@@ -1848,6 +1865,7 @@ export default function App() {
           assetById={assetById}
           windowWidth={windowWidth}
           showOriginalTitle={showOriginalTitle}
+          language={language}
           pinnedFan={pinnedFan}
           onRemove={(assetId) => togglePinned(assetId)}
           onDragStart={startHandDrag}
@@ -1855,7 +1873,7 @@ export default function App() {
         />
       )}
 
-      {handGhost && <HandGhost ghost={handGhost} showOriginalTitle={showOriginalTitle} t={t} />}
+      {handGhost && <HandGhost ghost={handGhost} showOriginalTitle={showOriginalTitle} language={language} t={t} />}
       {toast && <div className="toast is-visible">{toast}</div>}
     </div>
   );
@@ -2396,6 +2414,7 @@ function AssetCard({
   isSearchMatch,
   isCurrent,
   showOriginalTitle,
+  language = DEFAULT_SETTINGS.language,
   isCompact = false,
   t,
   onTogglePinned,
@@ -2412,8 +2431,7 @@ function AssetCard({
     isCurrent ? "current-hit" : "",
     isCompact ? "is-compact" : "",
   ].filter(Boolean).join(" ");
-  const primaryTitle = showOriginalTitle ? asset.title : (asset.title_ru || asset.title);
-  const secondaryTitle = showOriginalTitle ? asset.title_ru : "";
+  const { primaryTitle, secondaryTitle } = getAssetDisplayTitles(asset, language, showOriginalTitle);
   const cardStyle = {
     transform: `translate(${x}px, ${y}px)`,
     "--asset-preview": `url(${JSON.stringify(asset.preview || "")})`,
@@ -2485,7 +2503,7 @@ function AssetCard({
   );
 }
 
-function Hand({ handRef, pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan, onRemove, onDragStart, t }) {
+function Hand({ handRef, pinnedIds, assetById, windowWidth, showOriginalTitle, language, pinnedFan, onRemove, onDragStart, t }) {
   const hoverTimeoutRef = useRef(null);
   const [activeHandCardId, setActiveHandCardId] = useState("");
   const pinnedAssets = Array.from(pinnedIds)
@@ -2518,8 +2536,7 @@ function Hand({ handRef, pinnedIds, assetById, windowWidth, showOriginalTitle, p
     <aside ref={handRef} className="hand" aria-label="Pinned assets">
       <div className="hand-cards" style={{ "--hand-count": pinnedAssets.length, "--hand-step": `${step}px` }}>
         {pinnedAssets.map((asset, index) => {
-          const primaryTitle = showOriginalTitle ? asset.title : (asset.title_ru || asset.title);
-          const secondaryTitle = showOriginalTitle ? asset.title_ru : "";
+          const { primaryTitle, secondaryTitle } = getAssetDisplayTitles(asset, language, showOriginalTitle);
           const progress = pinnedAssets.length > 1 ? index / (pinnedAssets.length - 1) : 0;
           const wavePhase = progress * Math.PI * 2 - Math.PI / 2;
           const wave = Math.sin(wavePhase);
@@ -2571,7 +2588,7 @@ function Hand({ handRef, pinnedIds, assetById, windowWidth, showOriginalTitle, p
   );
 }
 
-function HandGhost({ ghost, showOriginalTitle, t }) {
+function HandGhost({ ghost, showOriginalTitle, language, t }) {
   return (
     <div className="drag-ghost" style={{ left: ghost.x, top: ghost.y }}>
       <AssetCard
@@ -2584,6 +2601,7 @@ function HandGhost({ ghost, showOriginalTitle, t }) {
         isSearchMatch
         isCurrent={false}
         showOriginalTitle={showOriginalTitle}
+        language={language}
         t={t}
         onTogglePinned={() => {}}
         onDuplicate={() => {}}
