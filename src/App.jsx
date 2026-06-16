@@ -36,13 +36,138 @@ const DEFAULT_SETTINGS = {
 };
 
 const TYPE_LABELS = {
-  material: "Materials",
-  "3d-model": "3D Models",
-  decal: "Decals",
-  brush: "Brushes",
+  en: {
+    material: "Materials",
+    "3d-model": "3D Models",
+    decal: "Decals",
+    brush: "Brushes",
+  },
+  ru: {
+    material: "Материалы",
+    "3d-model": "3D модели",
+    decal: "Декали",
+    brush: "Кисти",
+  },
 };
 
 const TYPE_ORDER = ["material", "3d-model", "decal", "brush"];
+
+const CATEGORY_LABELS_RU = {
+  "3D": "3D",
+  Abandoned: "Заброшенное",
+  Animals: "Животные",
+  "Armor & Shields": "Броня и щиты",
+  "Art & Statues": "Искусство и статуи",
+  "Art & Traditional": "Искусство и традиционные",
+  Asphalt: "Асфальт",
+  Balconies: "Балконы",
+  Blood: "Кровь",
+  Books: "Книги",
+  Brick: "Кирпич",
+  Brushes: "Кисти",
+  "Building & Human-made": "Здания и рукотворное",
+  "Buildings & Architecture": "Здания и архитектура",
+  Carpet: "Ковер",
+  "Characters & Creatures": "Персонажи и существа",
+  Cities: "Города",
+  Cliffs: "Скалы",
+  Coal: "Уголь",
+  Commercial: "Коммерческое",
+  Components: "Компоненты",
+  Concrete: "Бетон",
+  Consumer: "Бытовое",
+  "Cooked Food": "Готовая еда",
+  Damage: "Повреждения",
+  "Damage & Grunge": "Повреждения и грязь",
+  Debris: "Обломки",
+  Decals: "Декали",
+  Decoration: "Декор",
+  Dirt: "Грязь",
+  Doors: "Двери",
+  Dungeon: "Подземелье",
+  "Electronics & Technology": "Электроника и технологии",
+  Environments: "Окружения",
+  "Fabric & Clothing": "Ткани и одежда",
+  Farm: "Ферма",
+  Fingerprint: "Отпечатки пальцев",
+  "Food & Drink": "Еда и напитки",
+  Forest: "Лес",
+  Frost: "Иней",
+  "Fruits & Vegetables": "Фрукты и овощи",
+  Fur: "Мех",
+  "Furniture & Fixtures": "Мебель и фурнитура",
+  Graffiti: "Граффити",
+  Grain: "Зерно",
+  Gravel: "Гравий",
+  Ground: "Грунт",
+  Grunge: "Гранж",
+  Guns: "Огнестрельное оружие",
+  Hardware: "Крепеж и фурнитура",
+  Historical: "Историческое",
+  "Historical / Points of Interest": "Исторические / достопримечательности",
+  Home: "Дом",
+  Imprint: "Отпечаток",
+  Industrial: "Индустриальное",
+  "Industrial Buildings": "Промышленные здания",
+  Leakage: "Протечки",
+  Leather: "Кожа",
+  Ledges: "Уступы",
+  "Marble & Granite": "Мрамор и гранит",
+  "Material & Textures": "Материалы и текстуры",
+  "Meat & Seafood": "Мясо и морепродукты",
+  Medieval: "Средневековье",
+  Melee: "Ближний бой",
+  Metal: "Металл",
+  Military: "Военное",
+  "Military / Warzone": "Военное / зона боевых действий",
+  Mountain: "Горы",
+  Mud: "Грязь",
+  Mushrooms: "Грибы",
+  "Nature & Plants": "Природа и растения",
+  "Nature & Terrain": "Природа и ландшафт",
+  Organic: "Органика",
+  Packs: "Наборы",
+  Pattern: "Узор",
+  Plain: "Равнина",
+  Plants: "Растения",
+  Plaster: "Штукатурка",
+  Plastic: "Пластик",
+  Rock: "Камень",
+  "Rocks & Stones": "Камни и скалы",
+  Roofing: "Кровля",
+  Roofs: "Крыши",
+  Rubber: "Резина",
+  Sand: "Песок",
+  Scatter: "Россыпь",
+  "Scorch Mark": "Следы ожогов",
+  Seabed: "Морское дно",
+  Snow: "Снег",
+  Soil: "Почва",
+  Spatter: "Брызги",
+  Sponge: "Губка",
+  Stain: "Пятна",
+  Stairs: "Лестницы",
+  Stone: "Камень",
+  Storage: "Хранение",
+  "Streets & Construction": "Улицы и строительство",
+  Tarp: "Брезент",
+  Temple: "Храм",
+  Terrain: "Ландшафт",
+  "Throwing weapons": "Метательное оружие",
+  Tile: "Плитка",
+  "Tombs & Gravestones": "Гробницы и надгробия",
+  "Tools, Objects & Decor": "Инструменты, объекты и декор",
+  Toys: "Игрушки",
+  Trashyard: "Свалка",
+  Trees: "Деревья",
+  Vegetation: "Растительность",
+  Walls: "Стены",
+  Water: "Вода",
+  "Weapons & Combat": "Оружие и бой",
+  Windows: "Окна",
+  "Wipe Mark": "Следы протирки",
+  Wood: "Дерево",
+};
 
 const THEME_OPTIONS = [
   { value: "light", labelKey: "themeLight" },
@@ -494,6 +619,72 @@ function makeUniqueProfileName(name, usedNames) {
     nextName = `${cleanName} ${index}`;
   }
   return nextName;
+}
+
+function getTypeLabel(type, language = DEFAULT_SETTINGS.language) {
+  return TYPE_LABELS[language]?.[type] || TYPE_LABELS.en[type] || type;
+}
+
+function splitCategoryPath(category) {
+  return String(category || "")
+    .split(">")
+    .map(part => part.trim())
+    .filter(Boolean);
+}
+
+function getCategoryLocale(language) {
+  return language === "ru" ? "ru-RU" : "en-US";
+}
+
+function localizeCategoryPart(part, language = DEFAULT_SETTINGS.language) {
+  if (language !== "ru") return part;
+  return CATEGORY_LABELS_RU[part] || part;
+}
+
+function formatCategoryPath(category, language = DEFAULT_SETTINGS.language) {
+  return splitCategoryPath(category)
+    .map(part => localizeCategoryPart(part, language))
+    .join(" > ");
+}
+
+function getCategoryLeafLabel(category, language = DEFAULT_SETTINGS.language) {
+  const parts = splitCategoryPath(category);
+  const leaf = parts.at(-1);
+  return leaf ? localizeCategoryPart(leaf, language) : category;
+}
+
+function getCategoryGroupLabel(category, language = DEFAULT_SETTINGS.language) {
+  const parts = splitCategoryPath(category);
+  return parts.length > 1
+    ? parts.slice(0, -1).map(part => localizeCategoryPart(part, language)).join(" > ")
+    : "";
+}
+
+function groupCategoryOptions(categories, language = DEFAULT_SETTINGS.language) {
+  const groups = new Map();
+  const standalone = [];
+  const locale = getCategoryLocale(language);
+  for (const category of categories) {
+    const groupLabel = getCategoryGroupLabel(category, language);
+    const option = {
+      value: category,
+      label: getCategoryLeafLabel(category, language),
+    };
+    if (!groupLabel) {
+      standalone.push(option);
+      continue;
+    }
+    if (!groups.has(groupLabel)) groups.set(groupLabel, []);
+    groups.get(groupLabel).push(option);
+  }
+
+  return {
+    standalone: standalone.sort((a, b) => a.label.localeCompare(b.label, locale) || a.value.localeCompare(b.value)),
+    groups: Array.from(groups, ([label, options]) => ({
+      label,
+      options: options.sort((a, b) => a.label.localeCompare(b.label, locale) || a.value.localeCompare(b.value)),
+    })).sort((a, b) => a.label.localeCompare(b.label, locale)),
+  };
 }
 
 function readSearchHistory() {
@@ -1543,13 +1734,14 @@ export default function App() {
         >
           <div className="note-layer">
             {visibleNotes.map(note => (
-              <GroupNote
-                key={note.id}
-                note={note}
-                t={t}
-                activeQuery={activeQuery}
-                searchMatchCount={activeQuery
-                  ? activeAssets.filter(asset => asset.categoryPath === note.title && asset.isSearchMatch).length
+                  <GroupNote
+                    key={note.id}
+                    note={note}
+                    t={t}
+                    language={language}
+                    activeQuery={activeQuery}
+                    searchMatchCount={activeQuery
+                      ? activeAssets.filter(asset => asset.categoryPath === note.title && asset.isSearchMatch).length
                   : null}
               />
             ))}
@@ -1799,7 +1991,7 @@ function Toolbar({
         {categoryFilter && (
           <div className="search-context-row">
             <span>{t.selectedCategory}</span>
-            <strong>{categoryFilter}</strong>
+            <strong>{formatCategoryPath(categoryFilter, language)}</strong>
           </div>
         )}
       </form>
@@ -2052,6 +2244,8 @@ function SettingsPanel({
   visibleAssetCount,
   activeAssetCount,
 }) {
+  const categoryOptions = useMemo(() => groupCategoryOptions(categories, language), [categories, language]);
+
   return (
     <section className="settings-popover" aria-label={t.settings}>
       <div className="settings-canvas-count">
@@ -2069,7 +2263,7 @@ function SettingsPanel({
                 checked={enabledTypes.has(type)}
                 onChange={() => onToggleType(type)}
               />
-              <span>{TYPE_LABELS[type]}</span>
+              <span>{getTypeLabel(type, language)}</span>
               <small>{(typeCounts.get(type) || 0).toLocaleString("ru-RU")}</small>
             </label>
           ))}
@@ -2084,8 +2278,15 @@ function SettingsPanel({
           onChange={event => setCategoryFilter(event.target.value)}
         >
           <option value="">{t.allSubcategories}</option>
-          {categories.map(category => (
-            <option key={category} value={category}>{category}</option>
+          {categoryOptions.standalone.map(option => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+          {categoryOptions.groups.map(group => (
+            <optgroup key={group.label} label={group.label}>
+              {group.options.map(option => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </label>
@@ -2170,15 +2371,15 @@ function SettingsPanel({
   );
 }
 
-function GroupNote({ note, t, activeQuery, searchMatchCount }) {
+function GroupNote({ note, t, language, activeQuery, searchMatchCount }) {
   return (
     <section
       className={`group-note note-group-${note.listingType}`}
       style={{ transform: `translate(${note.x}px, ${note.y}px)`, width: note.width, height: note.height }}
     >
       <div>
-        <span className={`note-type note-${note.listingType}`}>{TYPE_LABELS[note.listingType] || note.assetType}</span>
-        <strong>{note.title}</strong>
+        <span className={`note-type note-${note.listingType}`}>{getTypeLabel(note.listingType, language)}</span>
+        <strong>{formatCategoryPath(note.title, language)}</strong>
       </div>
       <span>{activeQuery ? `${searchMatchCount} / ${note.count}` : `${note.count} ${note.count === 1 ? t.asset : t.assets}`}</span>
     </section>
