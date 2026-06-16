@@ -156,6 +156,14 @@ img {
   backdrop-filter: blur(18px);
 }
 
+.toolbar.has-search-context {
+  min-height: 108px;
+}
+
+.toolbar.has-search-context + .viewport {
+  inset: 108px 0 146px 0;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -283,6 +291,81 @@ img {
   font-size: 10px;
   font-weight: 900;
   text-align: center;
+}
+
+.search-history-popover {
+  position: absolute;
+  z-index: 75;
+  top: 48px;
+  left: 0;
+  width: min(100%, 420px);
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--popover-bg);
+  box-shadow: 0 24px 56px rgba(0, 0, 0, 0.42);
+  backdrop-filter: blur(18px);
+}
+
+.search-history-popover strong {
+  padding: 0 4px 3px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.search-history-popover button {
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 750;
+  overflow: hidden;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-history-popover button:hover,
+.search-history-popover button:focus-visible {
+  border-color: var(--control-border);
+  background: var(--control-bg);
+  outline: none;
+}
+
+.search-context-row {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  margin-top: -2px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.search-context-row span {
+  flex: 0 0 auto;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.search-context-row strong {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 850;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toolbar select {
@@ -753,6 +836,28 @@ svg {
   font-weight: 900;
 }
 
+.focus-mode-hint {
+  position: absolute;
+  z-index: 37;
+  top: 14px;
+  left: 50%;
+  max-width: min(520px, calc(100vw - 128px));
+  padding: 8px 13px;
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--popover-bg) 72%, transparent);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1.25;
+  text-align: center;
+  opacity: 0.68;
+  pointer-events: none;
+  transform: translateX(-50%);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.24);
+  backdrop-filter: blur(14px);
+}
+
 .viewport-actions {
   position: absolute;
   z-index: 36;
@@ -940,6 +1045,7 @@ svg {
     var(--card-bg);
   color: var(--card-text);
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
+  cursor: pointer;
   transform-origin: 0 0;
   transition: opacity 160ms ease, border-color 160ms ease, box-shadow 160ms ease, filter 160ms ease;
 }
@@ -981,6 +1087,7 @@ svg {
 
 .asset-card.is-free {
   border-color: #7f89a3;
+  cursor: grab;
 }
 
 .card-title {
@@ -1285,6 +1392,10 @@ svg {
 
   .viewport {
     inset: 172px 0 146px 0;
+  }
+
+  .toolbar.has-search-context + .viewport {
+    inset: 198px 0 146px 0;
   }
 
   .app-shell.is-focus-mode .viewport {

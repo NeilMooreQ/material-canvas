@@ -3,8 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const DATA_URL = `${import.meta.env.BASE_URL}data/assets.json`;
 const LEGACY_STORAGE_KEY = "quixel-asset-canvas-react-v2";
 const PROFILES_STORAGE_KEY = "quixel-asset-canvas-profiles-v1";
+const SEARCH_HISTORY_STORAGE_KEY = "quixel-asset-canvas-search-history-v1";
 const PROFILE_EXPORT_VERSION = 1;
 const DEFAULT_PROFILE_NAME = "My Profile";
+const MAX_SEARCH_HISTORY = 10;
+const MAX_UNDO_STEPS = 30;
 
 const CARD_W = 180;
 const CARD_H = 238;
@@ -55,6 +58,8 @@ const UI_TEXT = {
     searchPlaceholder: "Asphalt",
     search: "Search",
     clearSearch: "Clear search",
+    searchHistory: "Recent searches",
+    selectedCategory: "Category",
     next: "Next",
     matches: "matches",
     noMatches: "No matches",
@@ -97,6 +102,7 @@ const UI_TEXT = {
     themeMixed: "Light with dark canvas",
     themeDark: "Dark",
     resetView: "Reset view",
+    focusModeHint: "Focus mode is on. Press F to exit.",
     prevCategory: "Previous category",
     nextCategory: "Next category",
     shortcuts: "Shortcuts",
@@ -104,8 +110,9 @@ const UI_TEXT = {
     shortcutItems: [
       { keys: "Tab", label: "Accept autocomplete" },
       { keys: "F3 / Ctrl+G", label: "Jump to the next search match" },
-      { keys: "F", label: "Reset view" },
-      { keys: "Space", label: "Toggle focus mode" },
+      { keys: "R", label: "Reset view" },
+      { keys: "F", label: "Toggle focus mode" },
+      { keys: "Ctrl+Z", label: "Undo last canvas action" },
       { keys: "1-9", label: "Load profile by list order" },
     ],
     openFab: "Open Fab listing",
@@ -116,12 +123,16 @@ const UI_TEXT = {
     freeCopyCreated: "Movable copy created",
     copyAdded: "Copy added to canvas",
     copyReturnedToPinned: "Copy returned to pinned",
+    undoApplied: "Last action undone",
+    nothingToUndo: "Nothing to undo",
   },
   ru: {
     loadError: "Ошибка загрузки данных",
     searchPlaceholder: "Асфальт",
     search: "Поиск",
     clearSearch: "Очистить поиск",
+    searchHistory: "Недавние поиски",
+    selectedCategory: "Категория",
     next: "Далее",
     matches: "совпадений",
     noMatches: "Совпадений нет",
@@ -164,6 +175,7 @@ const UI_TEXT = {
     themeMixed: "Светлая с темным",
     themeDark: "Темная",
     resetView: "Сбросить вид",
+    focusModeHint: "Включен режим фокуса. Нажмите F, чтобы выйти.",
     prevCategory: "Предыдущая категория",
     nextCategory: "Следующая категория",
     shortcuts: "Подсказки",
@@ -171,8 +183,9 @@ const UI_TEXT = {
     shortcutItems: [
       { keys: "Tab", label: "Принять автодополнение" },
       { keys: "F3 / Ctrl+G", label: "Перейти к следующему результату поиска" },
-      { keys: "F", label: "Сбросить вид" },
-      { keys: "Space", label: "Включить или выключить режим фокуса" },
+      { keys: "R", label: "Сбросить вид" },
+      { keys: "F", label: "Включить или выключить режим фокуса" },
+      { keys: "Ctrl+Z", label: "Отменить последнее действие на канвасе" },
       { keys: "1-9", label: "Загрузить профиль по порядку в списке" },
     ],
     openFab: "Open Fab listing",
@@ -183,8 +196,13 @@ const UI_TEXT = {
     freeCopyCreated: "Создана свободная копия",
     copyAdded: "Копия добавлена на доску",
     copyReturnedToPinned: "Копия возвращена в pinned",
+    undoApplied: "Последнее действие отменено",
+    nothingToUndo: "Нечего отменять",
   },
 };
+
+let lastOpenedListingUrl = "";
+let lastOpenedListingAt = 0;
 
 function normalizeText(value) {
   return String(value || "")
@@ -230,6 +248,26 @@ function matchSuggestionCase(word, typedWord) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function openListingUrl(url) {
+  if (!url) return;
+  const now = Date.now();
+  if (lastOpenedListingUrl === url && now - lastOpenedListingAt < 800) return;
+  lastOpenedListingUrl = url;
+  lastOpenedListingAt = now;
+  const opened = window.open(url, "_blank", "noopener,noreferrer");
+  if (opened) opened.opener = null;
+}
+
+function getAssetCardUrlFromEvent(event) {
+  const target = event.target;
+  if (!(target instanceof Element)) return "";
+  if (target.closest("button, a, input, select, textarea")) return "";
+  const pointHit = document.elementFromPoint(event.clientX, event.clientY);
+  const card = target.closest(".asset-card")
+    || (pointHit instanceof Element ? pointHit.closest(".asset-card") : null);
+  return card?.dataset.assetUrl || "";
 }
 
 function russianPlural(count, forms) {
@@ -444,6 +482,22 @@ function makeUniqueProfileName(name, usedNames) {
   return nextName;
 }
 
+function readSearchHistory() {
+  try {
+    const raw = localStorage.getItem(SEARCH_HISTORY_STORAGE_KEY);
+    const entries = JSON.parse(raw || "[]");
+    return Array.isArray(entries)
+      ? entries.map(entry => String(entry || "").trim()).filter(Boolean).slice(0, MAX_SEARCH_HISTORY)
+      : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeSearchHistory(entries) {
+  localStorage.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_SEARCH_HISTORY)));
+}
+
 function readProfilesFromPayload(payload, assetById) {
   const rawProfiles = Array.isArray(payload)
     ? payload
@@ -539,6 +593,7 @@ export default function App() {
   const freeDragRef = useRef(null);
   const handDragRef = useRef(null);
   const handRef = useRef(null);
+  const undoStackRef = useRef([]);
   const profileFileInputRef = useRef(null);
   const skipNextAutosaveRef = useRef(false);
   const skipNextSearchResetRef = useRef(false);
@@ -560,6 +615,7 @@ export default function App() {
   const [language, setLanguage] = useState(DEFAULT_SETTINGS.language);
   const [queryInput, setQueryInput] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
+  const [searchHistory, setSearchHistory] = useState(() => readSearchHistory());
   const [nextMatchIndex, setNextMatchIndex] = useState(0);
   const [currentFocusId, setCurrentFocusId] = useState("");
   const [view, setView] = useState(DEFAULT_VIEW);
@@ -682,6 +738,12 @@ export default function App() {
     });
     return matchSuggestionCase(suggestion?.word || "", currentWord);
   }, [queryInput, searchVocabulary]);
+  const searchHistoryMatches = useMemo(() => {
+    const normalizedInput = normalizeText(queryInput.trim());
+    return searchHistory
+      .filter(query => !normalizedInput || normalizeText(query).includes(normalizedInput))
+      .slice(0, MAX_SEARCH_HISTORY);
+  }, [queryInput, searchHistory]);
 
   useEffect(() => {
     if (skipNextSearchResetRef.current) {
@@ -743,6 +805,7 @@ export default function App() {
   }, []);
 
   const applyProfileToState = useCallback((profile) => {
+    undoStackRef.current = [];
     skipNextSearchResetRef.current = true;
     setView(profile.view);
     setHideUnpurchased(profile.settings.hideUnpurchased);
@@ -988,15 +1051,40 @@ export default function App() {
     setCurrentFocusId(asset.id);
   }, [layout.assetPositions]);
 
-  const runSearch = useCallback(() => {
-    const query = normalizeText(queryInput.trim());
+  const addSearchHistory = useCallback((rawQuery) => {
+    const cleanQuery = String(rawQuery || "").trim();
+    if (!cleanQuery) return;
+    const normalizedQuery = normalizeText(cleanQuery);
+    setSearchHistory(prev => {
+      const next = [
+        cleanQuery,
+        ...prev.filter(query => normalizeText(query) !== normalizedQuery),
+      ].slice(0, MAX_SEARCH_HISTORY);
+      writeSearchHistory(next);
+      return next;
+    });
+  }, []);
+
+  const runSearchWithValue = useCallback((rawQuery, remember = true) => {
+    const cleanQuery = String(rawQuery || "").trim();
+    const query = normalizeText(cleanQuery);
     setActiveQuery(query);
     setCurrentFocusId("");
     setNextMatchIndex(0);
     if (!query) return;
+    if (remember) addSearchHistory(cleanQuery);
     const matches = filteredBaseAssets.filter(asset => query.split(/\s+/).filter(Boolean).every(part => asset.searchText.includes(part)));
     if (!matches.length) showToast(t.noMatches);
-  }, [filteredBaseAssets, queryInput, showToast, t]);
+  }, [addSearchHistory, filteredBaseAssets, showToast, t]);
+
+  const runSearch = useCallback(() => {
+    runSearchWithValue(queryInput);
+  }, [queryInput, runSearchWithValue]);
+
+  const useSearchHistoryQuery = useCallback((query) => {
+    setQueryInput(query);
+    runSearchWithValue(query);
+  }, [runSearchWithValue]);
 
   const goToNextMatch = useCallback(() => {
     if (!activeQuery || !searchMatches.length) {
@@ -1047,6 +1135,32 @@ export default function App() {
     }
   }, [completeSearchSuggestion, searchSuggestion]);
 
+  const makeBoardSnapshot = useCallback(() => ({
+    pinnedIds: Array.from(pinnedIds),
+    freeCopies: freeCopies.map(copy => ({ ...copy })),
+    freeCopySeq,
+  }), [freeCopies, freeCopySeq, pinnedIds]);
+
+  const pushUndoSnapshot = useCallback((snapshot = makeBoardSnapshot()) => {
+    undoStackRef.current = [...undoStackRef.current, snapshot].slice(-MAX_UNDO_STEPS);
+  }, [makeBoardSnapshot]);
+
+  const restoreBoardSnapshot = useCallback((snapshot) => {
+    setPinnedIds(new Set(snapshot.pinnedIds));
+    setFreeCopies(snapshot.freeCopies.map(copy => ({ ...copy })));
+    setFreeCopySeq(Math.max(Number(snapshot.freeCopySeq) || 1, snapshot.freeCopies.length + 1, 1));
+  }, []);
+
+  const undoLastAction = useCallback(() => {
+    const snapshot = undoStackRef.current.pop();
+    if (!snapshot) {
+      showToast(t.nothingToUndo);
+      return;
+    }
+    restoreBoardSnapshot(snapshot);
+    showToast(t.undoApplied);
+  }, [restoreBoardSnapshot, showToast, t]);
+
   useEffect(() => {
     function isEditableTarget(target) {
       return target?.closest?.("input, textarea, select, [contenteditable='true']");
@@ -1054,17 +1168,22 @@ export default function App() {
 
     function handleHotkey(event) {
       const key = event.key.toLowerCase();
+      if ((event.ctrlKey || event.metaKey) && !event.shiftKey && (key === "z" || event.code === "KeyZ") && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        undoLastAction();
+        return;
+      }
       if (event.key === "F3" || (event.ctrlKey && (key === "g" || event.code === "KeyG"))) {
         event.preventDefault();
         goToNextMatch();
         return;
       }
-      if (!event.ctrlKey && !event.metaKey && !event.altKey && (key === "f" || event.code === "KeyF") && !isEditableTarget(event.target)) {
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && (key === "r" || event.code === "KeyR") && !isEditableTarget(event.target)) {
         event.preventDefault();
         resetView();
         return;
       }
-      if (!event.ctrlKey && !event.metaKey && !event.altKey && event.code === "Space" && !isEditableTarget(event.target)) {
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && (key === "f" || event.code === "KeyF") && !isEditableTarget(event.target)) {
         event.preventDefault();
         setShortcutsOpen(false);
         setFocusMode(prev => {
@@ -1089,24 +1208,26 @@ export default function App() {
 
     window.addEventListener("keydown", handleHotkey);
     return () => window.removeEventListener("keydown", handleHotkey);
-  }, [goToNextMatch, loadProfile, profiles, resetView]);
+  }, [goToNextMatch, loadProfile, profiles, resetView, undoLastAction]);
 
   const togglePinned = useCallback((assetId) => {
+    pushUndoSnapshot();
     setPinnedIds(prev => {
       const next = new Set(prev);
       if (next.has(assetId)) next.delete(assetId);
       else next.add(assetId);
       return next;
     });
-  }, []);
+  }, [pushUndoSnapshot]);
 
-  const createFreeCopy = useCallback((assetId, x, y) => {
+  const createFreeCopy = useCallback((assetId, x, y, recordUndo = true) => {
+    if (recordUndo) pushUndoSnapshot();
     setFreeCopySeq(seq => seq + 1);
     setFreeCopies(prev => {
       const copyId = `copy-${Date.now()}-${freeCopySeq}`;
       return [...prev, { copyId, assetId, x, y }];
     });
-  }, [freeCopySeq]);
+  }, [freeCopySeq, pushUndoSnapshot]);
 
   const duplicateAsset = useCallback((assetId) => {
     const pos = layout.assetPositions.get(assetId);
@@ -1116,8 +1237,9 @@ export default function App() {
   }, [createFreeCopy, layout.assetPositions, showToast, t]);
 
   const deleteFreeCopy = useCallback((copyId) => {
+    pushUndoSnapshot();
     setFreeCopies(prev => prev.filter(copy => copy.copyId !== copyId));
-  }, []);
+  }, [pushUndoSnapshot]);
 
   const screenToWorld = useCallback((clientX, clientY) => {
     const rect = viewportRef.current.getBoundingClientRect();
@@ -1142,6 +1264,23 @@ export default function App() {
     };
   }, [view]);
 
+  const handleViewportPointerDownCapture = useCallback((event) => {
+    if (event.button !== 0 || event.detail < 2) return;
+    const url = getAssetCardUrlFromEvent(event);
+    if (!url) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openListingUrl(url);
+  }, []);
+
+  const handleViewportDoubleClick = useCallback((event) => {
+    const url = getAssetCardUrlFromEvent(event);
+    if (!url) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openListingUrl(url);
+  }, []);
+
   const handleViewportPointerMove = useCallback((event) => {
     if (panRef.current) {
       const pan = panRef.current;
@@ -1153,6 +1292,7 @@ export default function App() {
     }
     if (freeDragRef.current) {
       const drag = freeDragRef.current;
+      drag.hasMoved = true;
       const dx = (event.clientX - drag.startX) / view.scale;
       const dy = (event.clientY - drag.startY) / view.scale;
       setFreeCopies(prev => prev.map(copy => copy.copyId === drag.copyId
@@ -1175,8 +1315,12 @@ export default function App() {
       && event.clientX <= handRect.right
       && event.clientY >= handRect.top
       && event.clientY <= handRect.bottom;
-    if (!droppedOnHand) return;
+    if (!droppedOnHand) {
+      if (freeDrag.hasMoved) pushUndoSnapshot(freeDrag.undoSnapshot);
+      return;
+    }
 
+    pushUndoSnapshot(freeDrag.undoSnapshot);
     setFreeCopies(prev => prev.filter(copy => copy.copyId !== freeDrag.copyId));
     setPinnedIds(prev => {
       if (prev.has(freeDrag.assetId)) return prev;
@@ -1185,7 +1329,7 @@ export default function App() {
       return next;
     });
     showToast(t.copyReturnedToPinned);
-  }, [showToast, t]);
+  }, [pushUndoSnapshot, showToast, t]);
 
   const toggleShortcuts = useCallback(() => {
     setShortcutsOpen(prev => !prev);
@@ -1217,12 +1361,14 @@ export default function App() {
     freeDragRef.current = {
       copyId: copy.copyId,
       assetId: copy.assetId,
+      undoSnapshot: makeBoardSnapshot(),
+      hasMoved: false,
       startX: event.clientX,
       startY: event.clientY,
       originX: copy.x,
       originY: copy.y,
     };
-  }, []);
+  }, [makeBoardSnapshot]);
 
   const startHandDrag = useCallback((event, assetId) => {
     if (event.button !== 0 || event.target.closest("button, a")) return;
@@ -1299,6 +1445,8 @@ export default function App() {
         queryInput={queryInput}
         setQueryInput={handleQueryInputChange}
         searchSuggestion={searchSuggestion}
+        searchHistoryMatches={searchHistoryMatches}
+        onUseSearchHistory={useSearchHistoryQuery}
         onSearchKeyDown={handleSearchKeyDown}
         onSubmit={handleSearchSubmit}
         matchButtonLabel={matchButtonLabel}
@@ -1350,6 +1498,8 @@ export default function App() {
         onPointerMove={handleViewportPointerMove}
         onPointerUp={endPointerGesture}
         onPointerCancel={endPointerGesture}
+        onPointerDownCapture={handleViewportPointerDownCapture}
+        onDoubleClick={handleViewportDoubleClick}
         onAuxClick={(event) => {
           if (event.button === 1) event.preventDefault();
         }}
@@ -1421,6 +1571,11 @@ export default function App() {
             })}
           </div>
         </div>
+        {focusMode && (
+          <div className="focus-mode-hint" aria-live="polite">
+            {t.focusModeHint}
+          </div>
+        )}
         {!focusMode && (
           <>
             <div className="viewport-hud viewport-stats" aria-label="Положение канваса">
@@ -1435,7 +1590,7 @@ export default function App() {
         )}
         <div className="viewport-actions" aria-label="Навигация по канвасу">
           <div className="viewport-top-actions">
-            <button className="icon-button viewport-reset" type="button" title={`${t.resetView} (F)`} aria-label={t.resetView} onClick={resetView}>
+            <button className="icon-button viewport-reset" type="button" title={`${t.resetView} (R)`} aria-label={t.resetView} onClick={resetView}>
               <ResetIcon />
             </button>
             <button
@@ -1490,6 +1645,8 @@ function Toolbar({
   queryInput,
   setQueryInput,
   searchSuggestion,
+  searchHistoryMatches,
+  onUseSearchHistory,
   onSearchKeyDown,
   onSubmit,
   matchButtonLabel,
@@ -1530,13 +1687,16 @@ function Toolbar({
   profileFileInputRef,
 }) {
   const searchInputRef = useRef(null);
+  const [searchFocused, setSearchFocused] = useState(false);
   const clearSearch = useCallback(() => {
     setQueryInput("");
+    setSearchFocused(true);
     window.requestAnimationFrame(() => searchInputRef.current?.focus());
   }, [setQueryInput]);
+  const showSearchHistory = searchFocused && searchHistoryMatches.length > 0;
 
   return (
-    <header className="toolbar">
+    <header className={`toolbar ${categoryFilter ? "has-search-context" : ""}`}>
       <div className="brand">
         <span className="brand-mark">Q</span>
         <div>
@@ -1546,7 +1706,13 @@ function Toolbar({
       </div>
 
       <form className="search-bar" onSubmit={onSubmit}>
-        <div className="search-input-wrap">
+        <div
+          className="search-input-wrap"
+          onFocus={() => setSearchFocused(true)}
+          onBlur={event => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setSearchFocused(false);
+          }}
+        >
           <input
             ref={searchInputRef}
             value={queryInput}
@@ -1574,9 +1740,32 @@ function Toolbar({
               <kbd>Tab</kbd>
             </div>
           )}
+          {showSearchHistory && (
+            <div className="search-history-popover" aria-label={t.searchHistory}>
+              <strong>{t.searchHistory}</strong>
+              {searchHistoryMatches.map(query => (
+                <button
+                  key={query}
+                  type="button"
+                  onClick={() => {
+                    setSearchFocused(false);
+                    onUseSearchHistory(query);
+                  }}
+                >
+                  {query}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         {queryInput.trim() && <button className="primary-button search-button" type="submit">{matchButtonLabel}</button>}
         <span className="match-count">{matchCount == null ? "" : `${matchCount.toLocaleString("ru-RU")} ${t.matches}`}</span>
+        {categoryFilter && (
+          <div className="search-context-row">
+            <span>{t.selectedCategory}</span>
+            <strong>{categoryFilter}</strong>
+          </div>
+        )}
       </form>
 
       <div className="toolbar-controls">
@@ -1931,8 +2120,11 @@ function AssetCard({
     "--asset-preview": `url(${JSON.stringify(asset.preview || "")})`,
   };
   const openAsset = useCallback((event) => {
-    if (event.target.closest("button, a")) return;
-    window.open(asset.url, "_blank", "noreferrer");
+    const target = event.target;
+    if (target instanceof Element && target.closest("button, a")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openListingUrl(asset.url);
   }, [asset.url]);
 
   if (isCompact) {
@@ -1940,6 +2132,7 @@ function AssetCard({
       <article
         className={className}
         style={cardStyle}
+        data-asset-url={asset.url}
         title={primaryTitle}
         onPointerDown={onPointerDown}
         onDoubleClick={openAsset}
@@ -1951,6 +2144,7 @@ function AssetCard({
     <article
       className={className}
       style={cardStyle}
+      data-asset-url={asset.url}
       onPointerDown={onPointerDown}
       onDoubleClick={openAsset}
     >
