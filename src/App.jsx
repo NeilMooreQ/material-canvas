@@ -8,6 +8,8 @@ const PROFILE_EXPORT_VERSION = 1;
 const DEFAULT_PROFILE_NAME = "My Profile";
 const MAX_SEARCH_HISTORY = 10;
 const MAX_UNDO_STEPS = 30;
+const GITHUB_REPOSITORY_URL = "https://github.com/NeilMooreQ/material-canvas";
+const GITHUB_REPOSITORY_API_URL = "https://api.github.com/repos/NeilMooreQ/material-canvas";
 
 const CARD_W = 180;
 const CARD_H = 238;
@@ -28,6 +30,7 @@ const DEFAULT_SETTINGS = {
   showOriginalTitle: false,
   pinnedFan: false,
   staticGridBackground: true,
+  lightweightCards: false,
   theme: "dark",
   language: "en",
 };
@@ -96,6 +99,7 @@ const UI_TEXT = {
     showOriginalTitle: "Show original title",
     pinnedFan: "Pinned cards fan",
     staticGridBackground: "Static grid background",
+    lightweightCards: "Lightweight cards",
     theme: "Theme",
     language: "Language",
     themeLight: "Light",
@@ -107,11 +111,15 @@ const UI_TEXT = {
     nextCategory: "Next category",
     shortcuts: "Shortcuts",
     shortcutsTitle: "Hotkeys",
+    githubRepository: "Open GitHub repository",
+    githubStars: "Project stars",
     shortcutItems: [
       { keys: "Tab", label: "Accept autocomplete" },
       { keys: "F3 / Ctrl+G", label: "Jump to the next search match" },
       { keys: "R", label: "Reset view" },
       { keys: "F", label: "Toggle focus mode" },
+      { keys: "/", label: "Show or hide shortcuts" },
+      { keys: "E", label: "Toggle lightweight cards" },
       { keys: "Ctrl+Z", label: "Undo last canvas action" },
       { keys: "1-9", label: "Load profile by list order" },
     ],
@@ -169,6 +177,7 @@ const UI_TEXT = {
     showOriginalTitle: "Показывать оригинальный title",
     pinnedFan: "Закрепленные карточки веером",
     staticGridBackground: "Фон сетки статичный",
+    lightweightCards: "Легкий режим карточек",
     theme: "Тема",
     language: "Язык",
     themeLight: "Светлая",
@@ -180,11 +189,15 @@ const UI_TEXT = {
     nextCategory: "Следующая категория",
     shortcuts: "Подсказки",
     shortcutsTitle: "Горячие клавиши",
+    githubRepository: "Открыть репозиторий GitHub",
+    githubStars: "Звезды проекта",
     shortcutItems: [
       { keys: "Tab", label: "Принять автодополнение" },
       { keys: "F3 / Ctrl+G", label: "Перейти к следующему результату поиска" },
       { keys: "R", label: "Сбросить вид" },
       { keys: "F", label: "Включить или выключить режим фокуса" },
+      { keys: "/", label: "Показать или скрыть горячие клавиши" },
+      { keys: "E", label: "Включить или выключить легкие карточки" },
       { keys: "Ctrl+Z", label: "Отменить последнее действие на канвасе" },
       { keys: "1-9", label: "Загрузить профиль по порядку в списке" },
     ],
@@ -419,6 +432,7 @@ function sanitizeProfile(profile, assetById, fallbackName = DEFAULT_PROFILE_NAME
       showOriginalTitle: settings.showOriginalTitle ?? DEFAULT_SETTINGS.showOriginalTitle,
       pinnedFan: settings.pinnedFan ?? DEFAULT_SETTINGS.pinnedFan,
       staticGridBackground: settings.staticGridBackground ?? DEFAULT_SETTINGS.staticGridBackground,
+      lightweightCards: settings.lightweightCards ?? DEFAULT_SETTINGS.lightweightCards,
       theme: normalizeTheme(settings.theme),
       language: normalizeLanguage(settings.language),
     },
@@ -611,6 +625,7 @@ export default function App() {
   const [showOriginalTitle, setShowOriginalTitle] = useState(DEFAULT_SETTINGS.showOriginalTitle);
   const [pinnedFan, setPinnedFan] = useState(DEFAULT_SETTINGS.pinnedFan);
   const [staticGridBackground, setStaticGridBackground] = useState(DEFAULT_SETTINGS.staticGridBackground);
+  const [lightweightCards, setLightweightCards] = useState(DEFAULT_SETTINGS.lightweightCards);
   const [theme, setTheme] = useState(DEFAULT_SETTINGS.theme);
   const [language, setLanguage] = useState(DEFAULT_SETTINGS.language);
   const [queryInput, setQueryInput] = useState("");
@@ -815,6 +830,7 @@ export default function App() {
     setShowOriginalTitle(profile.settings.showOriginalTitle);
     setPinnedFan(profile.settings.pinnedFan);
     setStaticGridBackground(profile.settings.staticGridBackground);
+    setLightweightCards(profile.settings.lightweightCards);
     setTheme(normalizeTheme(profile.settings.theme));
     setLanguage(normalizeLanguage(profile.settings.language));
     setPinnedIds(new Set(profile.board.pinnedIds));
@@ -861,6 +877,7 @@ export default function App() {
         showOriginalTitle,
         pinnedFan,
         staticGridBackground,
+        lightweightCards,
         theme,
         language,
       },
@@ -872,7 +889,7 @@ export default function App() {
         currentFocusId,
       }, assetById),
     };
-  }, [activeQuery, assetById, categoryFilter, currentFocusId, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, language, nextMatchIndex, pinnedFan, pinnedIds, queryInput, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
+  }, [activeQuery, assetById, categoryFilter, currentFocusId, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, language, lightweightCards, nextMatchIndex, pinnedFan, pinnedIds, queryInput, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
 
   const mergeCurrentIntoProfiles = useCallback((profileList, savedAt = Date.now()) => {
     if (!activeProfileId) return profileList;
@@ -922,6 +939,7 @@ export default function App() {
         showOriginalTitle,
         pinnedFan,
         staticGridBackground,
+        lightweightCards,
         theme,
         language,
       },
@@ -934,7 +952,7 @@ export default function App() {
     applyProfileToState(profile);
     writeProfileStore(next, profile.id);
     showToast(t.profileCreated(profile.name));
-  }, [applyProfileToState, categoryFilter, enabledTypes, hideUnpurchased, language, mergeCurrentIntoProfiles, pinnedFan, profileNameInput, profiles, removePinnedOnDrag, showOriginalTitle, showToast, staticGridBackground, t, theme, view]);
+  }, [applyProfileToState, categoryFilter, enabledTypes, hideUnpurchased, language, lightweightCards, mergeCurrentIntoProfiles, pinnedFan, profileNameInput, profiles, removePinnedOnDrag, showOriginalTitle, showToast, staticGridBackground, t, theme, view]);
 
   const loadProfile = useCallback((profileId) => {
     const target = profiles.find(profile => profile.id === profileId);
@@ -1196,6 +1214,18 @@ export default function App() {
         });
         return;
       }
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && (key === "e" || event.code === "KeyE") && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        setLightweightCards(prev => !prev);
+        return;
+      }
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && (event.key === "/" || event.code === "Slash") && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        setSettingsOpen(false);
+        setProfilesOpen(false);
+        setShortcutsOpen(prev => !prev);
+        return;
+      }
       if (!event.ctrlKey && !event.metaKey && !event.altKey && /^Digit[1-9]$/.test(event.code) && !isEditableTarget(event.target)) {
         const profileIndex = Number(event.code.slice(5)) - 1;
         const profile = profiles[profileIndex];
@@ -1421,7 +1451,7 @@ export default function App() {
   const visibleAssetCount = visibleAssets.length;
   const activeAssetCount = activeAssets.length;
   const viewportZoom = Math.round(view.scale * 100);
-  const isCompactCardZoom = focusMode || viewportZoom <= Math.round(COMPACT_CARD_ZOOM * 100);
+  const isCompactCardZoom = focusMode || lightweightCards || viewportZoom <= Math.round(COMPACT_CARD_ZOOM * 100);
   const viewportStats = {
     zoom: viewportZoom,
     x: (-view.x / view.scale).toFixed(2),
@@ -1471,6 +1501,8 @@ export default function App() {
         setPinnedFan={setPinnedFan}
         staticGridBackground={staticGridBackground}
         setStaticGridBackground={setStaticGridBackground}
+        lightweightCards={lightweightCards}
+        setLightweightCards={setLightweightCards}
         theme={theme}
         setTheme={setTheme}
         setLanguage={setLanguage}
@@ -1590,19 +1622,21 @@ export default function App() {
         )}
         <div className="viewport-actions" aria-label="Навигация по канвасу">
           <div className="viewport-top-actions">
+            <div className="shortcuts-anchor">
+              <button
+                className={`icon-button shortcuts-button ${shortcutsOpen ? "is-active" : ""}`}
+                type="button"
+                title={`${t.shortcuts} (/)`}
+                aria-label={t.shortcuts}
+                onClick={toggleShortcuts}
+              >
+                <QuestionIcon />
+              </button>
+              {shortcutsOpen && <ShortcutsPanel t={t} />}
+            </div>
             <button className="icon-button viewport-reset" type="button" title={`${t.resetView} (R)`} aria-label={t.resetView} onClick={resetView}>
               <ResetIcon />
             </button>
-            <button
-              className={`icon-button shortcuts-button ${shortcutsOpen ? "is-active" : ""}`}
-              type="button"
-              title={t.shortcuts}
-              aria-label={t.shortcuts}
-              onClick={toggleShortcuts}
-            >
-              <QuestionIcon />
-            </button>
-            {shortcutsOpen && <ShortcutsPanel t={t} />}
           </div>
           <div className="category-jump">
             <button className="icon-button" type="button" title={t.prevCategory} aria-label={t.prevCategory} onClick={() => centerOnCategory(-1)}>
@@ -1668,6 +1702,8 @@ function Toolbar({
   setPinnedFan,
   staticGridBackground,
   setStaticGridBackground,
+  lightweightCards,
+  setLightweightCards,
   theme,
   setTheme,
   setLanguage,
@@ -1769,6 +1805,7 @@ function Toolbar({
       </form>
 
       <div className="toolbar-controls">
+        <GitHubButton t={t} language={language} />
         <button
           className={`icon-button profiles-button ${profilesOpen ? "is-active" : ""}`}
           type="button"
@@ -1831,6 +1868,8 @@ function Toolbar({
             setPinnedFan={setPinnedFan}
             staticGridBackground={staticGridBackground}
             setStaticGridBackground={setStaticGridBackground}
+            lightweightCards={lightweightCards}
+            setLightweightCards={setLightweightCards}
             theme={theme}
             setTheme={setTheme}
             setLanguage={setLanguage}
@@ -1856,6 +1895,55 @@ function ShortcutsPanel({ t }) {
         ))}
       </div>
     </section>
+  );
+}
+
+function GitHubButton({ t, language }) {
+  const [stars, setStars] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(GITHUB_REPOSITORY_API_URL, {
+      headers: { Accept: "application/vnd.github+json" },
+    })
+      .then(response => {
+        if (!response.ok) throw new Error("GitHub stars unavailable");
+        return response.json();
+      })
+      .then(data => {
+        if (!cancelled && Number.isFinite(data.stargazers_count)) {
+          setStars(data.stargazers_count);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setStars(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const locale = language === "ru" ? "ru-RU" : "en-US";
+  const starLabel = stars == null ? "..." : stars.toLocaleString(locale);
+  const title = stars == null
+    ? t.githubRepository
+    : `${t.githubRepository} - ${starLabel} ${t.githubStars}`;
+
+  return (
+    <a
+      className="github-button"
+      href={GITHUB_REPOSITORY_URL}
+      target="_blank"
+      rel="noreferrer"
+      title={title}
+      aria-label={title}
+    >
+      <GitHubIcon />
+      <span className="github-stars" aria-label={t.githubStars}>
+        <StarIcon />
+        <span>{starLabel}</span>
+      </span>
+    </a>
   );
 }
 
@@ -1956,6 +2044,8 @@ function SettingsPanel({
   setPinnedFan,
   staticGridBackground,
   setStaticGridBackground,
+  lightweightCards,
+  setLightweightCards,
   theme,
   setTheme,
   setLanguage,
@@ -2040,6 +2130,14 @@ function SettingsPanel({
             onChange={event => setStaticGridBackground(event.target.checked)}
           />
           <span>{t.staticGridBackground}</span>
+        </label>
+        <label className="settings-check">
+          <input
+            type="checkbox"
+            checked={lightweightCards}
+            onChange={event => setLightweightCards(event.target.checked)}
+          />
+          <span>{t.lightweightCards}</span>
         </label>
       </div>
 
@@ -2282,6 +2380,10 @@ function ClearIcon() {
 
 function ProfilesIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a3 3 0 0 1 3-3h5.2a3 3 0 0 1 2.1.86L16.44 5H18a3 3 0 0 1 3 3v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V5h1Zm3-1a1 1 0 0 0-1 1v1h11.27l-2.39-2.39A1 1 0 0 0 14.17 3H7Zm-2 4v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8H5Zm7 2a2.4 2.4 0 0 1 1.9 3.86A4.2 4.2 0 0 1 16 17h-2a2 2 0 0 0-4 0H8a4.2 4.2 0 0 1 2.1-3.14A2.4 2.4 0 0 1 12 10Zm0 2a.4.4 0 1 0 0 .8.4.4 0 0 0 0-.8Z" /></svg>;
+}
+
+function GitHubIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2A10 10 0 0 0 8.84 21.49c.5.09.68-.22.68-.48v-1.69c-2.78.6-3.37-1.18-3.37-1.18-.45-1.15-1.1-1.46-1.1-1.46-.9-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.88 1.51 2.31 1.07 2.87.82.09-.64.35-1.07.63-1.32-2.22-.25-4.56-1.11-4.56-4.95 0-1.09.39-1.98 1.03-2.68-.1-.25-.45-1.27.1-2.64 0 0 .84-.27 2.75 1.02A9.55 9.55 0 0 1 12 7.04c.85 0 1.7.11 2.5.33 1.9-1.29 2.74-1.02 2.74-1.02.55 1.37.2 2.39.1 2.64.64.7 1.03 1.59 1.03 2.68 0 3.85-2.34 4.7-4.57 4.95.36.31.68.92.68 1.86v2.75c0 .27.18.58.69.48A10 10 0 0 0 12 2Z" /></svg>;
 }
 
 function ChevronUpIcon() {

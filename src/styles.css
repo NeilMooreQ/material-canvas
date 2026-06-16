@@ -468,6 +468,57 @@ img {
   min-width: 0;
 }
 
+.github-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  height: 42px;
+  padding: 0 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--control-bg);
+  color: var(--text);
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color 120ms ease, background 120ms ease, transform 120ms ease;
+}
+
+.github-button:hover,
+.github-button:focus-visible {
+  border-color: var(--accent);
+  background: var(--control-hover);
+  outline: none;
+}
+
+.github-button:active {
+  transform: translateY(1px);
+}
+
+.github-button > svg {
+  flex: 0 0 auto;
+}
+
+.github-stars {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+  color: var(--warn);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.github-stars svg {
+  width: 14px;
+  height: 14px;
+}
+
+.github-stars span {
+  color: var(--text);
+}
+
 .settings-button.is-active,
 .profiles-button.is-active,
 .shortcuts-button.is-active {
@@ -865,6 +916,7 @@ svg {
   right: 14px;
   bottom: 14px;
   display: flex;
+  align-items: flex-end;
   flex-direction: column;
   justify-content: space-between;
   pointer-events: none;
@@ -878,11 +930,15 @@ svg {
 }
 
 .viewport-top-actions {
-  position: relative;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
   pointer-events: auto;
+}
+
+.shortcuts-anchor {
+  position: relative;
+  display: grid;
 }
 
 .shortcuts-popover {
@@ -934,6 +990,7 @@ svg {
 
 .category-jump {
   display: grid;
+  justify-items: end;
   gap: 8px;
 }
 
