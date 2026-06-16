@@ -62,6 +62,27 @@ function makeSearchText(asset) {
   ].join(" "));
 }
 
+function extractSearchTokens(asset) {
+  return [
+    asset.title,
+    asset.title_ru,
+    asset.categoryLeaf,
+    asset.categoryShort,
+  ]
+    .join(" ")
+    .match(/[\p{L}\p{N}]+/gu) || [];
+}
+
+function matchSuggestionCase(word, typedWord) {
+  if (!word || !typedWord) return word;
+  if (typedWord === typedWord.toLocaleUpperCase("ru-RU")) return word.toLocaleUpperCase("ru-RU");
+  const first = typedWord[0];
+  if (first && first !== first.toLocaleLowerCase("ru-RU") && first === first.toLocaleUpperCase("ru-RU")) {
+    return word[0].toLocaleUpperCase("ru-RU") + word.slice(1);
+  }
+  return word;
+}
+
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
@@ -412,6 +433,22 @@ export default function App() {
     });
   }, [assets, categoryFilter, enabledTypes, hideUnpurchased]);
 
+  const searchVocabulary = useMemo(() => {
+    const words = new Map();
+    for (const asset of filteredBaseAssets) {
+      for (const token of extractSearchTokens(asset)) {
+        if (token.length < 2) continue;
+        const key = normalizeText(token);
+        if (!key || key.length < 2) continue;
+        const current = words.get(key);
+        if (current) current.count += 1;
+        else words.set(key, { word: token, count: 1 });
+      }
+    }
+    return Array.from(words.values())
+      .sort((a, b) => b.count - a.count || a.word.length - b.word.length || a.word.localeCompare(b.word));
+  }, [filteredBaseAssets]);
+
   const categories = useMemo(() => {
     const seen = new Map();
     for (const asset of assets) {
@@ -440,6 +477,16 @@ export default function App() {
     return activeAssets.filter(asset => asset.isSearchMatch);
   }, [activeAssets, activeQuery]);
   const searchMatchSet = useMemo(() => new Set(searchMatches.map(asset => asset.id)), [searchMatches]);
+  const searchSuggestion = useMemo(() => {
+    const currentWord = queryInput.match(/[\p{L}\p{N}]+$/u)?.[0] || "";
+    const normalizedWord = normalizeText(currentWord);
+    if (normalizedWord.length < 2) return "";
+    const suggestion = searchVocabulary.find(entry => {
+      const normalizedSuggestion = normalizeText(entry.word);
+      return normalizedSuggestion.startsWith(normalizedWord) && normalizedSuggestion !== normalizedWord;
+    });
+    return matchSuggestionCase(suggestion?.word || "", currentWord);
+  }, [queryInput, searchVocabulary]);
 
   useEffect(() => {
     setNextMatchIndex(0);
@@ -689,6 +736,21 @@ export default function App() {
     setView(DEFAULT_VIEW);
   }, []);
 
+  const centerOnCategory = useCallback((direction) => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    if (!rect || !layout.notes.length) return;
+    const sortedNotes = layout.notes.slice().sort((a, b) => a.y - b.y);
+    const centerY = (rect.height / 2 - view.y) / view.scale;
+    const target = direction > 0
+      ? sortedNotes.find(note => note.y > centerY + 24) || sortedNotes[0]
+      : sortedNotes.slice().reverse().find(note => note.y < centerY - 24) || sortedNotes[sortedNotes.length - 1];
+    setView(prev => ({
+      ...prev,
+      x: 32 - target.x * prev.scale,
+      y: 28 - target.y * prev.scale,
+    }));
+  }, [layout.notes, view]);
+
   const centerOnAsset = useCallback((asset, requestedScale = 1.18) => {
     const pos = layout.assetPositions.get(asset.id);
     const rect = viewportRef.current?.getBoundingClientRect();
@@ -731,12 +793,57 @@ export default function App() {
 
   const handleQueryInputChange = useCallback((value) => {
     setQueryInput(value);
-    if (normalizeText(value.trim()) !== activeQuery) {
+    const normalizedValue = normalizeText(value.trim());
+    if (!normalizedValue) {
+      setActiveQuery("");
+      setCurrentFocusId("");
+      setNextMatchIndex(0);
+      return;
+    }
+    if (normalizedValue !== activeQuery) {
       setActiveQuery("");
       setCurrentFocusId("");
       setNextMatchIndex(0);
     }
   }, [activeQuery]);
+
+  const completeSearchSuggestion = useCallback(() => {
+    if (!searchSuggestion) return false;
+    setQueryInput(prev => prev.replace(/[\p{L}\p{N}]+$/u, searchSuggestion));
+    setActiveQuery("");
+    setCurrentFocusId("");
+    setNextMatchIndex(0);
+    return true;
+  }, [searchSuggestion]);
+
+  const handleSearchKeyDown = useCallback((event) => {
+    if (event.key === "Tab" && searchSuggestion) {
+      event.preventDefault();
+      completeSearchSuggestion();
+    }
+  }, [completeSearchSuggestion, searchSuggestion]);
+
+  useEffect(() => {
+    function isEditableTarget(target) {
+      return target?.closest?.("input, textarea, select, [contenteditable='true']");
+    }
+
+    function handleHotkey(event) {
+      const key = event.key.toLowerCase();
+      if (event.key === "F3" || (event.ctrlKey && (key === "g" || event.code === "KeyG"))) {
+        event.preventDefault();
+        goToNextMatch();
+        return;
+      }
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && (key === "f" || event.code === "KeyF") && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        resetView();
+      }
+    }
+
+    window.addEventListener("keydown", handleHotkey);
+    return () => window.removeEventListener("keydown", handleHotkey);
+  }, [goToNextMatch, resetView]);
 
   const togglePinned = useCallback((assetId) => {
     setPinnedIds(prev => {
@@ -776,6 +883,9 @@ export default function App() {
 
   const handleViewportPointerDown = useCallback((event) => {
     if (event.button !== 0 || event.target.closest(".toolbar, .hand, button, a, input, select")) return;
+    if (document.activeElement?.matches?.("input, textarea, select, [contenteditable='true']")) {
+      document.activeElement.blur();
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
     panRef.current = {
       startX: event.clientX,
@@ -889,6 +999,13 @@ export default function App() {
     : "Поиск";
 
   const activeSummary = `${filteredBaseAssets.length.toLocaleString("ru-RU")} / ${assets.length.toLocaleString("ru-RU")} assets`;
+  const visibleAssetCount = visibleAssets.length;
+  const activeAssetCount = activeAssets.length;
+  const viewportStats = {
+    zoom: Math.round(view.scale * 100),
+    x: (-view.x / view.scale).toFixed(2),
+    y: (-view.y / view.scale).toFixed(2),
+  };
   const dynamicGridSize = Math.max(12, 64 * view.scale);
   const viewportGridStyle = staticGridBackground
     ? undefined
@@ -904,6 +1021,8 @@ export default function App() {
         assetSummary={loadError ? "Load failed" : activeSummary}
         queryInput={queryInput}
         setQueryInput={handleQueryInputChange}
+        searchSuggestion={searchSuggestion}
+        onSearchKeyDown={handleSearchKeyDown}
         onSubmit={handleSearchSubmit}
         matchButtonLabel={matchButtonLabel}
         matchCount={activeQuery ? searchMatches.length : null}
@@ -929,6 +1048,8 @@ export default function App() {
         setStaticGridBackground={setStaticGridBackground}
         theme={theme}
         setTheme={setTheme}
+        visibleAssetCount={visibleAssetCount}
+        activeAssetCount={activeAssetCount}
         profiles={profiles}
         activeProfile={activeProfile}
         activeProfileId={activeProfileId}
@@ -941,7 +1062,6 @@ export default function App() {
         onDownloadProfiles={downloadProfiles}
         onUploadProfiles={uploadProfiles}
         profileFileInputRef={profileFileInputRef}
-        resetView={resetView}
       />
 
       <main
@@ -1015,6 +1135,27 @@ export default function App() {
             })}
           </div>
         </div>
+        <div className="viewport-hud viewport-stats" aria-label="Положение канваса">
+          <span>Zoom: {viewportStats.zoom}</span>
+          <span>X: {viewportStats.x}</span>
+          <span>Y: {viewportStats.y}</span>
+        </div>
+        <div className="viewport-hud viewport-count" aria-label="Количество ассетов">
+          Видно: {visibleAssetCount.toLocaleString("ru-RU")} / {activeAssetCount.toLocaleString("ru-RU")}
+        </div>
+        <div className="viewport-actions" aria-label="Навигация по канвасу">
+          <button className="icon-button viewport-reset" type="button" title="Сбросить вид (F)" aria-label="Сбросить вид" onClick={resetView}>
+            <ResetIcon />
+          </button>
+          <div className="category-jump">
+            <button className="icon-button" type="button" title="Предыдущая категория" aria-label="Предыдущая категория" onClick={() => centerOnCategory(-1)}>
+              <ChevronUpIcon />
+            </button>
+            <button className="icon-button" type="button" title="Следующая категория" aria-label="Следующая категория" onClick={() => centerOnCategory(1)}>
+              <ChevronDownIcon />
+            </button>
+          </div>
+        </div>
       </main>
 
       <Hand
@@ -1040,6 +1181,8 @@ function Toolbar({
   onToggleType,
   queryInput,
   setQueryInput,
+  searchSuggestion,
+  onSearchKeyDown,
   onSubmit,
   matchButtonLabel,
   matchCount,
@@ -1062,6 +1205,8 @@ function Toolbar({
   setStaticGridBackground,
   theme,
   setTheme,
+  visibleAssetCount,
+  activeAssetCount,
   profiles,
   activeProfile,
   activeProfileId,
@@ -1074,7 +1219,6 @@ function Toolbar({
   onDownloadProfiles,
   onUploadProfiles,
   profileFileInputRef,
-  resetView,
 }) {
   return (
     <header className="toolbar">
@@ -1087,21 +1231,27 @@ function Toolbar({
       </div>
 
       <form className="search-bar" onSubmit={onSubmit}>
-        <input
-          value={queryInput}
-          type="search"
-          autoComplete="off"
-          placeholder="Поиск по title / title_ru"
-          onChange={event => setQueryInput(event.target.value)}
-        />
-        <button className="primary-button" type="submit">{matchButtonLabel}</button>
+        <div className="search-input-wrap">
+          <input
+            value={queryInput}
+            type="search"
+            autoComplete="off"
+            placeholder="Асфальт"
+            onChange={event => setQueryInput(event.target.value)}
+            onKeyDown={onSearchKeyDown}
+          />
+          {searchSuggestion && (
+            <div className="autocomplete-hint">
+              <span>{searchSuggestion}</span>
+              <kbd>Tab</kbd>
+            </div>
+          )}
+        </div>
+        {queryInput.trim() && <button className="primary-button search-button" type="submit">{matchButtonLabel}</button>}
         <span className="match-count">{matchCount == null ? "" : `${matchCount.toLocaleString("ru-RU")} совпадений`}</span>
       </form>
 
       <div className="toolbar-controls">
-        <button className="icon-button" type="button" title="Сбросить вид" aria-label="Сбросить вид" onClick={resetView}>
-          <ResetIcon />
-        </button>
         <button
           className={`icon-button profiles-button ${profilesOpen ? "is-active" : ""}`}
           type="button"
@@ -1162,6 +1312,8 @@ function Toolbar({
             setStaticGridBackground={setStaticGridBackground}
             theme={theme}
             setTheme={setTheme}
+            visibleAssetCount={visibleAssetCount}
+            activeAssetCount={activeAssetCount}
           />
         )}
       </div>
@@ -1267,9 +1419,15 @@ function SettingsPanel({
   setStaticGridBackground,
   theme,
   setTheme,
+  visibleAssetCount,
+  activeAssetCount,
 }) {
   return (
     <section className="settings-popover" aria-label="Настройки">
+      <div className="settings-canvas-count">
+        {visibleAssetCount.toLocaleString("ru-RU")} из {activeAssetCount.toLocaleString("ru-RU")}
+      </div>
+
       <div className="settings-section">
         <strong>Типы ассетов</strong>
         <div className="settings-type-list">
@@ -1535,6 +1693,14 @@ function ResetIcon() {
 
 function ProfilesIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5a3 3 0 0 1 3-3h5.2a3 3 0 0 1 2.1.86L16.44 5H18a3 3 0 0 1 3 3v8a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4V5h1Zm3-1a1 1 0 0 0-1 1v1h11.27l-2.39-2.39A1 1 0 0 0 14.17 3H7Zm-2 4v8a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8H5Zm7 2a2.4 2.4 0 0 1 1.9 3.86A4.2 4.2 0 0 1 16 17h-2a2 2 0 0 0-4 0H8a4.2 4.2 0 0 1 2.1-3.14A2.4 2.4 0 0 1 12 10Zm0 2a.4.4 0 1 0 0 .8.4.4 0 0 0 0-.8Z" /></svg>;
+}
+
+function ChevronUpIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7.3 4.65 14.65l1.41 1.41L12 10.12l5.94 5.94 1.41-1.41L12 7.3Z" /></svg>;
+}
+
+function ChevronDownIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 16.7 7.35-7.35-1.41-1.41L12 13.88 6.06 7.94 4.65 9.35 12 16.7Z" /></svg>;
 }
 
 function SettingsIcon() {
