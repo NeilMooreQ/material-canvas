@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-const DATA_URL = "/data/assets.json";
+const DATA_URL = `${import.meta.env.BASE_URL}data/assets.json`;
 const LEGACY_STORAGE_KEY = "quixel-asset-canvas-react-v2";
 const PROFILES_STORAGE_KEY = "quixel-asset-canvas-profiles-v1";
 const PROFILE_EXPORT_VERSION = 1;
-const DEFAULT_PROFILE_NAME = "Мой профиль";
+const DEFAULT_PROFILE_NAME = "My Profile";
 
 const CARD_W = 180;
 const CARD_H = 238;
@@ -26,6 +26,7 @@ const DEFAULT_SETTINGS = {
   pinnedFan: false,
   staticGridBackground: true,
   theme: "dark",
+  language: "en",
 };
 
 const TYPE_LABELS = {
@@ -37,10 +38,130 @@ const TYPE_LABELS = {
 const TYPE_ORDER = ["material", "decal", "brush"];
 
 const THEME_OPTIONS = [
-  { value: "light", label: "Светлая" },
-  { value: "mixed", label: "Светлая с темным" },
-  { value: "dark", label: "Темная" },
+  { value: "light", labelKey: "themeLight" },
+  { value: "mixed", labelKey: "themeMixed" },
+  { value: "dark", labelKey: "themeDark" },
 ];
+
+const LANGUAGE_OPTIONS = [
+  { value: "en", label: "English" },
+  { value: "ru", label: "Русский" },
+];
+
+const UI_TEXT = {
+  en: {
+    loadError: "Data load failed",
+    searchPlaceholder: "Asphalt",
+    search: "Search",
+    next: "Next",
+    matches: "matches",
+    noMatches: "No matches",
+    visible: "Visible",
+    inCanvas: "On canvas",
+    assets: "assets",
+    asset: "asset",
+    profiles: "Profiles",
+    selected: "Selected:",
+    noProfile: "No profile",
+    lastSaved: "Last saved:",
+    save: "Save",
+    profileName: "Profile name",
+    create: "Create",
+    current: "Current",
+    load: "Load",
+    deleteProfile: "Delete profile",
+    uploadProfiles: "Upload profiles",
+    downloadJson: "Download JSON",
+    deleteConfirm: profileName => `Delete profile "${profileName}"?`,
+    profileCreated: profileName => `Profile "${profileName}" created`,
+    profileLoaded: profileName => `Profile "${profileName}" loaded`,
+    profileDeleted: profileName => `Profile "${profileName}" deleted`,
+    profileSaved: "Profile saved",
+    profilesDownloaded: "Profiles JSON downloaded",
+    profilesUploaded: count => `Profiles loaded: ${count}`,
+    profilesUploadFailed: "Failed to load profiles JSON",
+    settings: "Settings",
+    assetTypes: "Asset types",
+    subcategory: "Subcategory",
+    allSubcategories: "All subcategories",
+    hideUnpurchased: "Hide unpurchased assets",
+    removePinnedOnDrag: "Remove from pinned when dragged out",
+    showOriginalTitle: "Show original title",
+    pinnedFan: "Pinned cards fan",
+    staticGridBackground: "Static grid background",
+    theme: "Theme",
+    language: "Language",
+    themeLight: "Light",
+    themeMixed: "Light with dark canvas",
+    themeDark: "Dark",
+    resetView: "Reset view",
+    prevCategory: "Previous category",
+    nextCategory: "Next category",
+    openFab: "Open Fab listing",
+    pin: "Pin asset",
+    unpin: "Unpin asset",
+    duplicate: "Create movable copy",
+    deleteDuplicate: "Delete duplicate",
+    freeCopyCreated: "Movable copy created",
+    copyAdded: "Copy added to canvas",
+  },
+  ru: {
+    loadError: "Ошибка загрузки данных",
+    searchPlaceholder: "Асфальт",
+    search: "Поиск",
+    next: "Далее",
+    matches: "совпадений",
+    noMatches: "Совпадений нет",
+    visible: "Видно",
+    inCanvas: "В канвасе",
+    assets: "assets",
+    asset: "asset",
+    profiles: "Профили",
+    selected: "Выбран:",
+    noProfile: "Нет профиля",
+    lastSaved: "Последнее сохранение:",
+    save: "Сохранить",
+    profileName: "Название профиля",
+    create: "Создать",
+    current: "Текущий",
+    load: "Загрузить",
+    deleteProfile: "Удалить профиль",
+    uploadProfiles: "Загрузить профили",
+    downloadJson: "Скачать JSON",
+    deleteConfirm: profileName => `Удалить профиль "${profileName}"?`,
+    profileCreated: profileName => `Профиль "${profileName}" создан`,
+    profileLoaded: profileName => `Профиль "${profileName}" загружен`,
+    profileDeleted: profileName => `Профиль "${profileName}" удален`,
+    profileSaved: "Профиль сохранен",
+    profilesDownloaded: "JSON с профилями скачан",
+    profilesUploaded: count => `Загружено профилей: ${count}`,
+    profilesUploadFailed: "Не удалось загрузить JSON профилей",
+    settings: "Настройки",
+    assetTypes: "Типы ассетов",
+    subcategory: "Подкатегория",
+    allSubcategories: "Все подкатегории",
+    hideUnpurchased: "Скрыть не купленные",
+    removePinnedOnDrag: "Убирать из Pinned при вытаскивании",
+    showOriginalTitle: "Показывать оригинальный title",
+    pinnedFan: "Закрепленные карточки веером",
+    staticGridBackground: "Фон сетки статичный",
+    theme: "Тема",
+    language: "Язык",
+    themeLight: "Светлая",
+    themeMixed: "Светлая с темным",
+    themeDark: "Темная",
+    resetView: "Сбросить вид",
+    prevCategory: "Предыдущая категория",
+    nextCategory: "Следующая категория",
+    openFab: "Open Fab listing",
+    pin: "Pin asset",
+    unpin: "Unpin asset",
+    duplicate: "Create movable copy",
+    deleteDuplicate: "Delete duplicate",
+    freeCopyCreated: "Создана свободная копия",
+    copyAdded: "Копия добавлена на доску",
+  },
+};
 
 function normalizeText(value) {
   return String(value || "")
@@ -88,10 +209,6 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function pluralAsset(count) {
-  return count === 1 ? "asset" : "assets";
-}
-
 function russianPlural(count, forms) {
   const value = Math.abs(count) % 100;
   const single = value % 10;
@@ -101,13 +218,30 @@ function russianPlural(count, forms) {
   return forms[2];
 }
 
-function formatProfileTime(timestamp) {
+function formatProfileTime(timestamp, language = DEFAULT_SETTINGS.language) {
   const value = Number(timestamp);
-  if (!value) return "еще не сохранялся";
+  if (!value) return language === "ru" ? "еще не сохранялся" : "never";
   const deltaMs = Math.max(0, Date.now() - value);
   const minute = 60 * 1000;
   const hour = 60 * minute;
   const day = 24 * hour;
+  if (language !== "ru") {
+    if (deltaMs < minute) return "just now";
+    if (deltaMs < hour) {
+      const count = Math.floor(deltaMs / minute);
+      return `${count} minute${count === 1 ? "" : "s"} ago`;
+    }
+    if (deltaMs < day) {
+      const count = Math.floor(deltaMs / hour);
+      return `${count} hour${count === 1 ? "" : "s"} ago`;
+    }
+    if (deltaMs < 7 * day) {
+      const count = Math.floor(deltaMs / day);
+      return `${count} day${count === 1 ? "" : "s"} ago`;
+    }
+    if (deltaMs < 14 * day) return "a week ago";
+    return new Date(value).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+  }
   if (deltaMs < minute) return "только что";
   if (deltaMs < hour) {
     const count = Math.floor(deltaMs / minute);
@@ -142,6 +276,10 @@ function normalizeEnabledTypes(types) {
 
 function normalizeTheme(theme) {
   return THEME_OPTIONS.some(option => option.value === theme) ? theme : DEFAULT_SETTINGS.theme;
+}
+
+function normalizeLanguage(language) {
+  return LANGUAGE_OPTIONS.some(option => option.value === language) ? language : DEFAULT_SETTINGS.language;
 }
 
 function sanitizeView(view) {
@@ -221,6 +359,7 @@ function sanitizeProfile(profile, assetById, fallbackName = DEFAULT_PROFILE_NAME
       pinnedFan: settings.pinnedFan ?? DEFAULT_SETTINGS.pinnedFan,
       staticGridBackground: settings.staticGridBackground ?? DEFAULT_SETTINGS.staticGridBackground,
       theme: normalizeTheme(settings.theme),
+      language: normalizeLanguage(settings.language),
     },
     board: sanitizeBoard(profile?.board, assetById),
     search: sanitizeSearch(profile?.search, assetById),
@@ -243,7 +382,7 @@ function loadProfileStore(assetById) {
     if (raw) {
       const state = JSON.parse(raw);
       const profiles = (Array.isArray(state.profiles) ? state.profiles : [])
-        .map((profile, index) => sanitizeProfile(profile, assetById, `Профиль ${index + 1}`));
+        .map((profile, index) => sanitizeProfile(profile, assetById, `Profile ${index + 1}`));
       if (profiles.length) {
         const activeProfileId = profiles.some(profile => profile.id === state.activeProfileId)
           ? state.activeProfileId
@@ -392,6 +531,7 @@ export default function App() {
   const [pinnedFan, setPinnedFan] = useState(DEFAULT_SETTINGS.pinnedFan);
   const [staticGridBackground, setStaticGridBackground] = useState(DEFAULT_SETTINGS.staticGridBackground);
   const [theme, setTheme] = useState(DEFAULT_SETTINGS.theme);
+  const [language, setLanguage] = useState(DEFAULT_SETTINGS.language);
   const [queryInput, setQueryInput] = useState("");
   const [activeQuery, setActiveQuery] = useState("");
   const [nextMatchIndex, setNextMatchIndex] = useState(0);
@@ -409,6 +549,7 @@ export default function App() {
   const [profileNameInput, setProfileNameInput] = useState("");
 
   const assetById = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
+  const t = UI_TEXT[language] || UI_TEXT.en;
 
   useEffect(() => {
     let cancelled = false;
@@ -586,6 +727,7 @@ export default function App() {
     setPinnedFan(profile.settings.pinnedFan);
     setStaticGridBackground(profile.settings.staticGridBackground);
     setTheme(normalizeTheme(profile.settings.theme));
+    setLanguage(normalizeLanguage(profile.settings.language));
     setPinnedIds(new Set(profile.board.pinnedIds));
     setFreeCopies(profile.board.freeCopies);
     setFreeCopySeq(profile.board.freeCopySeq);
@@ -631,6 +773,7 @@ export default function App() {
         pinnedFan,
         staticGridBackground,
         theme,
+        language,
       },
       board: cleanBoard,
       search: sanitizeSearch({
@@ -640,7 +783,7 @@ export default function App() {
         currentFocusId,
       }, assetById),
     };
-  }, [activeQuery, assetById, categoryFilter, currentFocusId, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, nextMatchIndex, pinnedFan, pinnedIds, queryInput, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
+  }, [activeQuery, assetById, categoryFilter, currentFocusId, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, language, nextMatchIndex, pinnedFan, pinnedIds, queryInput, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
 
   const mergeCurrentIntoProfiles = useCallback((profileList, savedAt = Date.now()) => {
     if (!activeProfileId) return profileList;
@@ -677,8 +820,23 @@ export default function App() {
     event.preventDefault();
     const savedProfiles = mergeCurrentIntoProfiles(profiles);
     const usedNames = new Set(savedProfiles.map(profile => profile.name));
-    const name = makeUniqueProfileName(profileNameInput || `Профиль ${savedProfiles.length + 1}`, usedNames);
-    const profile = createBlankProfile(name);
+    const defaultProfileBase = language === "ru" ? "Профиль" : "Profile";
+    const name = makeUniqueProfileName(profileNameInput || `${defaultProfileBase} ${savedProfiles.length + 1}`, usedNames);
+    const profile = {
+      ...createBlankProfile(name),
+      view: sanitizeView(view),
+      settings: {
+        hideUnpurchased,
+        enabledTypes: normalizeEnabledTypes(Array.from(enabledTypes)),
+        categoryFilter,
+        removePinnedOnDrag,
+        showOriginalTitle,
+        pinnedFan,
+        staticGridBackground,
+        theme,
+        language,
+      },
+    };
     const next = [...savedProfiles, profile];
     setProfiles(next);
     setActiveProfileId(profile.id);
@@ -686,8 +844,8 @@ export default function App() {
     skipNextAutosaveRef.current = true;
     applyProfileToState(profile);
     writeProfileStore(next, profile.id);
-    showToast(`Профиль "${profile.name}" создан`);
-  }, [applyProfileToState, mergeCurrentIntoProfiles, profileNameInput, profiles, showToast]);
+    showToast(t.profileCreated(profile.name));
+  }, [applyProfileToState, categoryFilter, enabledTypes, hideUnpurchased, language, mergeCurrentIntoProfiles, pinnedFan, profileNameInput, profiles, removePinnedOnDrag, showOriginalTitle, showToast, staticGridBackground, t, theme, view]);
 
   const loadProfile = useCallback((profileId) => {
     const target = profiles.find(profile => profile.id === profileId);
@@ -698,13 +856,13 @@ export default function App() {
     skipNextAutosaveRef.current = true;
     applyProfileToState(target);
     writeProfileStore(next, target.id);
-    showToast(`Профиль "${target.name}" загружен`);
-  }, [activeProfileId, applyProfileToState, mergeCurrentIntoProfiles, profiles, showToast]);
+    showToast(t.profileLoaded(target.name));
+  }, [activeProfileId, applyProfileToState, mergeCurrentIntoProfiles, profiles, showToast, t]);
 
   const deleteProfile = useCallback((profileId) => {
     const target = profiles.find(profile => profile.id === profileId);
     if (!target) return;
-    if (!window.confirm(`Удалить профиль "${target.name}"?`)) return;
+    if (!window.confirm(t.deleteConfirm(target.name))) return;
     const baseProfiles = profileId === activeProfileId ? profiles : mergeCurrentIntoProfiles(profiles);
     let next = baseProfiles.filter(profile => profile.id !== profileId);
     if (!next.length) next = [createBlankProfile(DEFAULT_PROFILE_NAME)];
@@ -716,8 +874,8 @@ export default function App() {
     skipNextAutosaveRef.current = true;
     applyProfileToState(nextActive);
     writeProfileStore(next, nextActive.id);
-    showToast(`Профиль "${target.name}" удален`);
-  }, [activeProfileId, applyProfileToState, mergeCurrentIntoProfiles, profiles, showToast]);
+    showToast(t.profileDeleted(target.name));
+  }, [activeProfileId, applyProfileToState, mergeCurrentIntoProfiles, profiles, showToast, t]);
 
   const downloadProfiles = useCallback(() => {
     const next = mergeCurrentIntoProfiles(profiles);
@@ -736,8 +894,8 @@ export default function App() {
     link.download = "quixel-material-canvas-profiles.json";
     link.click();
     URL.revokeObjectURL(url);
-    showToast("JSON с профилями скачан");
-  }, [activeProfileId, mergeCurrentIntoProfiles, profiles, showToast]);
+    showToast(t.profilesDownloaded);
+  }, [activeProfileId, mergeCurrentIntoProfiles, profiles, showToast, t]);
 
   const uploadProfiles = useCallback(async (event) => {
     const file = event.target.files?.[0];
@@ -765,11 +923,11 @@ export default function App() {
       skipNextAutosaveRef.current = true;
       applyProfileToState(activeImportedProfile);
       writeProfileStore(next, activeImportedProfile.id);
-      showToast(`Загружено профилей: ${preparedProfiles.length}`);
+      showToast(t.profilesUploaded(preparedProfiles.length));
     } catch {
-      showToast("Не удалось загрузить JSON профилей");
+      showToast(t.profilesUploadFailed);
     }
-  }, [applyProfileToState, assetById, mergeCurrentIntoProfiles, profiles, showToast]);
+  }, [applyProfileToState, assetById, mergeCurrentIntoProfiles, profiles, showToast, t]);
 
   const resetView = useCallback(() => {
     setView(DEFAULT_VIEW);
@@ -811,8 +969,8 @@ export default function App() {
     setNextMatchIndex(0);
     if (!query) return;
     const matches = filteredBaseAssets.filter(asset => query.split(/\s+/).filter(Boolean).every(part => asset.searchText.includes(part)));
-    if (!matches.length) showToast("Совпадений нет");
-  }, [filteredBaseAssets, queryInput, showToast]);
+    if (!matches.length) showToast(t.noMatches);
+  }, [filteredBaseAssets, queryInput, showToast, t]);
 
   const goToNextMatch = useCallback(() => {
     if (!activeQuery || !searchMatches.length) {
@@ -906,8 +1064,8 @@ export default function App() {
     const pos = layout.assetPositions.get(assetId);
     if (!pos) return;
     createFreeCopy(assetId, pos.x + 28, pos.y + 28);
-    showToast("Создана свободная копия");
-  }, [createFreeCopy, layout.assetPositions, showToast]);
+    showToast(t.freeCopyCreated);
+  }, [createFreeCopy, layout.assetPositions, showToast, t]);
 
   const deleteFreeCopy = useCallback((copyId) => {
     setFreeCopies(prev => prev.filter(copy => copy.copyId !== copyId));
@@ -1024,7 +1182,7 @@ export default function App() {
           return next;
         });
       }
-      showToast("Копия добавлена на доску");
+      showToast(t.copyAdded);
     }
 
     window.addEventListener("pointermove", handleMove);
@@ -1033,12 +1191,12 @@ export default function App() {
       window.removeEventListener("pointermove", handleMove);
       window.removeEventListener("pointerup", handleUp);
     };
-  }, [createFreeCopy, removePinnedOnDrag, screenToWorld, showToast]);
+  }, [createFreeCopy, removePinnedOnDrag, screenToWorld, showToast, t]);
 
   const nextMatchDisplayIndex = searchMatches.length ? (nextMatchIndex % searchMatches.length) + 1 : 0;
   const matchButtonLabel = activeQuery && searchMatches.length
-    ? `Далее ${nextMatchDisplayIndex}/${searchMatches.length}`
-    : "Поиск";
+    ? `${t.next} ${nextMatchDisplayIndex}/${searchMatches.length}`
+    : t.search;
 
   const visibleAssetCount = visibleAssets.length;
   const activeAssetCount = activeAssets.length;
@@ -1061,6 +1219,8 @@ export default function App() {
   return (
     <div className={`app-shell theme-${theme}`}>
       <Toolbar
+        t={t}
+        language={language}
         loadError={loadError}
         queryInput={queryInput}
         setQueryInput={handleQueryInputChange}
@@ -1091,6 +1251,7 @@ export default function App() {
         setStaticGridBackground={setStaticGridBackground}
         theme={theme}
         setTheme={setTheme}
+        setLanguage={setLanguage}
         visibleAssetCount={visibleAssetCount}
         activeAssetCount={activeAssetCount}
         profiles={profiles}
@@ -1099,7 +1260,7 @@ export default function App() {
         profileNameInput={profileNameInput}
         setProfileNameInput={setProfileNameInput}
         onCreateProfile={createProfile}
-        onSaveProfile={() => saveActiveProfile("Профиль сохранен")}
+        onSaveProfile={() => saveActiveProfile(t.profileSaved)}
         onLoadProfile={loadProfile}
         onDeleteProfile={deleteProfile}
         onDownloadProfiles={downloadProfiles}
@@ -1129,6 +1290,7 @@ export default function App() {
               <GroupNote
                 key={note.id}
                 note={note}
+                t={t}
                 activeQuery={activeQuery}
                 searchMatchCount={activeQuery
                   ? activeAssets.filter(asset => asset.categoryPath === note.title && asset.isSearchMatch).length
@@ -1152,6 +1314,7 @@ export default function App() {
                   isCurrent={currentFocusId === asset.id}
                   showOriginalTitle={showOriginalTitle}
                   isCompact={isCompactCardZoom}
+                  t={t}
                   onTogglePinned={() => togglePinned(asset.id)}
                   onDuplicate={() => duplicateAsset(asset.id)}
                 />
@@ -1175,6 +1338,7 @@ export default function App() {
                   isCurrent={currentFocusId === asset.id}
                   showOriginalTitle={showOriginalTitle}
                   isCompact={isCompactCardZoom}
+                  t={t}
                   onTogglePinned={() => togglePinned(asset.id)}
                   onDelete={() => deleteFreeCopy(copy.copyId)}
                   onPointerDown={(event) => startFreeDrag(event, copy)}
@@ -1189,17 +1353,17 @@ export default function App() {
           <span>Y: {viewportStats.y}</span>
         </div>
         <div className="viewport-hud viewport-count" aria-label="Количество ассетов">
-          Видно: {visibleAssetCount.toLocaleString("ru-RU")} / {activeAssetCount.toLocaleString("ru-RU")}
+          {t.visible}: {visibleAssetCount.toLocaleString("ru-RU")} / {activeAssetCount.toLocaleString("ru-RU")}
         </div>
         <div className="viewport-actions" aria-label="Навигация по канвасу">
-          <button className="icon-button viewport-reset" type="button" title="Сбросить вид (F)" aria-label="Сбросить вид" onClick={resetView}>
+          <button className="icon-button viewport-reset" type="button" title={`${t.resetView} (F)`} aria-label={t.resetView} onClick={resetView}>
             <ResetIcon />
           </button>
           <div className="category-jump">
-            <button className="icon-button" type="button" title="Предыдущая категория" aria-label="Предыдущая категория" onClick={() => centerOnCategory(-1)}>
+            <button className="icon-button" type="button" title={t.prevCategory} aria-label={t.prevCategory} onClick={() => centerOnCategory(-1)}>
               <ChevronUpIcon />
             </button>
-            <button className="icon-button" type="button" title="Следующая категория" aria-label="Следующая категория" onClick={() => centerOnCategory(1)}>
+            <button className="icon-button" type="button" title={t.nextCategory} aria-label={t.nextCategory} onClick={() => centerOnCategory(1)}>
               <ChevronDownIcon />
             </button>
           </div>
@@ -1214,15 +1378,18 @@ export default function App() {
         pinnedFan={pinnedFan}
         onRemove={(assetId) => togglePinned(assetId)}
         onDragStart={startHandDrag}
+        t={t}
       />
 
-      {handGhost && <HandGhost ghost={handGhost} showOriginalTitle={showOriginalTitle} />}
+      {handGhost && <HandGhost ghost={handGhost} showOriginalTitle={showOriginalTitle} t={t} />}
       {toast && <div className="toast is-visible">{toast}</div>}
     </div>
   );
 }
 
 function Toolbar({
+  t,
+  language,
   loadError,
   typeCounts,
   enabledTypes,
@@ -1253,6 +1420,7 @@ function Toolbar({
   setStaticGridBackground,
   theme,
   setTheme,
+  setLanguage,
   visibleAssetCount,
   activeAssetCount,
   profiles,
@@ -1274,7 +1442,7 @@ function Toolbar({
         <span className="brand-mark">Q</span>
         <div>
           <strong>Material Canvas</strong>
-          {loadError && <span>Ошибка загрузки данных</span>}
+          {loadError && <span>{t.loadError}</span>}
         </div>
       </div>
 
@@ -1284,7 +1452,7 @@ function Toolbar({
             value={queryInput}
             type="search"
             autoComplete="off"
-            placeholder="Асфальт"
+            placeholder={t.searchPlaceholder}
             onChange={event => setQueryInput(event.target.value)}
             onKeyDown={onSearchKeyDown}
           />
@@ -1296,15 +1464,15 @@ function Toolbar({
           )}
         </div>
         {queryInput.trim() && <button className="primary-button search-button" type="submit">{matchButtonLabel}</button>}
-        <span className="match-count">{matchCount == null ? "" : `${matchCount.toLocaleString("ru-RU")} совпадений`}</span>
+        <span className="match-count">{matchCount == null ? "" : `${matchCount.toLocaleString("ru-RU")} ${t.matches}`}</span>
       </form>
 
       <div className="toolbar-controls">
         <button
           className={`icon-button profiles-button ${profilesOpen ? "is-active" : ""}`}
           type="button"
-          title="Профили"
-          aria-label="Профили"
+          title={t.profiles}
+          aria-label={t.profiles}
           onClick={() => {
             setSettingsOpen(false);
             setProfilesOpen(open => !open);
@@ -1315,6 +1483,8 @@ function Toolbar({
         {profilesOpen && (
           <ProfilesPanel
             profiles={profiles}
+            t={t}
+            language={language}
             activeProfile={activeProfile}
             activeProfileId={activeProfileId}
             profileNameInput={profileNameInput}
@@ -1331,8 +1501,8 @@ function Toolbar({
         <button
           className={`icon-button settings-button ${settingsOpen ? "is-active" : ""}`}
           type="button"
-          title="Настройки"
-          aria-label="Настройки"
+          title={t.settings}
+          aria-label={t.settings}
           onClick={() => {
             setProfilesOpen(false);
             setSettingsOpen(open => !open);
@@ -1343,6 +1513,8 @@ function Toolbar({
         {settingsOpen && (
           <SettingsPanel
             typeCounts={typeCounts}
+            t={t}
+            language={language}
             enabledTypes={enabledTypes}
             onToggleType={onToggleType}
             categoryFilter={categoryFilter}
@@ -1360,6 +1532,7 @@ function Toolbar({
             setStaticGridBackground={setStaticGridBackground}
             theme={theme}
             setTheme={setTheme}
+            setLanguage={setLanguage}
             visibleAssetCount={visibleAssetCount}
             activeAssetCount={activeAssetCount}
           />
@@ -1371,6 +1544,8 @@ function Toolbar({
 
 function ProfilesPanel({
   profiles,
+  t,
+  language,
   activeProfile,
   activeProfileId,
   profileNameInput,
@@ -1390,12 +1565,12 @@ function ProfilesPanel({
   });
 
   return (
-    <section className="profiles-popover" aria-label="Профили">
+    <section className="profiles-popover" aria-label={t.profiles}>
       <div className="profile-current">
-        <span>Выбран:</span>
-        <strong>{activeProfile?.name || "Нет профиля"}</strong>
-        <small>Последнее сохранение: {formatProfileTime(activeProfile?.updatedAt)}</small>
-        <button className="panel-button" type="button" onClick={onSaveProfile}>Сохранить</button>
+        <span>{t.selected}</span>
+        <strong>{activeProfile?.name || t.noProfile}</strong>
+        <small>{t.lastSaved} {formatProfileTime(activeProfile?.updatedAt, language)}</small>
+        <button className="panel-button" type="button" onClick={onSaveProfile}>{t.save}</button>
       </div>
 
       <form className="profile-create" onSubmit={onCreateProfile}>
@@ -1403,10 +1578,10 @@ function ProfilesPanel({
           value={profileNameInput}
           type="text"
           autoComplete="off"
-          placeholder="Название профиля"
+          placeholder={t.profileName}
           onChange={event => setProfileNameInput(event.target.value)}
         />
-        <button className="panel-button" type="submit">Создать</button>
+        <button className="panel-button" type="submit">{t.create}</button>
       </form>
 
       <div className="profile-list">
@@ -1416,15 +1591,15 @@ function ProfilesPanel({
             <div className={`profile-row ${isCurrent ? "is-current" : ""}`} key={profile.id}>
               <div>
                 <strong>{profile.name}</strong>
-                <small>{formatProfileTime(profile.updatedAt)}</small>
+                <small>{formatProfileTime(profile.updatedAt, language)}</small>
               </div>
               <div className="profile-row-actions">
                 {isCurrent ? (
-                  <span className="profile-current-badge">Текущий</span>
+                  <span className="profile-current-badge">{t.current}</span>
                 ) : (
-                  <button className="panel-button small" type="button" onClick={() => onLoadProfile(profile.id)}>Загрузить</button>
+                  <button className="panel-button small" type="button" onClick={() => onLoadProfile(profile.id)}>{t.load}</button>
                 )}
-                <button className="card-icon delete-button" type="button" title="Удалить профиль" aria-label="Удалить профиль" onClick={() => onDeleteProfile(profile.id)}>
+                <button className="card-icon delete-button" type="button" title={t.deleteProfile} aria-label={t.deleteProfile} onClick={() => onDeleteProfile(profile.id)}>
                   <TrashIcon />
                 </button>
               </div>
@@ -1434,8 +1609,8 @@ function ProfilesPanel({
       </div>
 
       <div className="profile-file-actions">
-        <button className="panel-button" type="button" onClick={() => profileFileInputRef.current?.click()}>Загрузить профили</button>
-        <button className="panel-button" type="button" onClick={onDownloadProfiles}>Скачать JSON</button>
+        <button className="panel-button" type="button" onClick={() => profileFileInputRef.current?.click()}>{t.uploadProfiles}</button>
+        <button className="panel-button" type="button" onClick={onDownloadProfiles}>{t.downloadJson}</button>
         <input
           ref={profileFileInputRef}
           type="file"
@@ -1450,6 +1625,8 @@ function ProfilesPanel({
 
 function SettingsPanel({
   typeCounts,
+  t,
+  language,
   enabledTypes,
   onToggleType,
   categoryFilter,
@@ -1467,17 +1644,19 @@ function SettingsPanel({
   setStaticGridBackground,
   theme,
   setTheme,
+  setLanguage,
   visibleAssetCount,
   activeAssetCount,
 }) {
   return (
-    <section className="settings-popover" aria-label="Настройки">
+    <section className="settings-popover" aria-label={t.settings}>
       <div className="settings-canvas-count">
-        {visibleAssetCount.toLocaleString("ru-RU")} из {activeAssetCount.toLocaleString("ru-RU")}
+        <span>{t.inCanvas}</span>
+        <span>{visibleAssetCount.toLocaleString("ru-RU")} / {activeAssetCount.toLocaleString("ru-RU")}</span>
       </div>
 
       <div className="settings-section">
-        <strong>Типы ассетов</strong>
+        <strong>{t.assetTypes}</strong>
         <div className="settings-type-list">
           {TYPE_ORDER.map(type => (
             <label key={type} className="settings-check">
@@ -1494,13 +1673,13 @@ function SettingsPanel({
       </div>
 
       <label className="settings-section">
-        <strong>Подкатегория</strong>
+        <strong>{t.subcategory}</strong>
         <select
           value={categoryFilter}
-          aria-label="Подкатегория"
+          aria-label={t.subcategory}
           onChange={event => setCategoryFilter(event.target.value)}
         >
-          <option value="">Все подкатегории</option>
+          <option value="">{t.allSubcategories}</option>
           {categories.map(category => (
             <option key={category} value={category}>{category}</option>
           ))}
@@ -1514,7 +1693,7 @@ function SettingsPanel({
             checked={hideUnpurchased}
             onChange={event => setHideUnpurchased(event.target.checked)}
           />
-          <span>Скрыть не купленные</span>
+          <span>{t.hideUnpurchased}</span>
         </label>
         <label className="settings-check">
           <input
@@ -1522,7 +1701,7 @@ function SettingsPanel({
             checked={removePinnedOnDrag}
             onChange={event => setRemovePinnedOnDrag(event.target.checked)}
           />
-          <span>Убирать из Pinned при вытаскивании</span>
+          <span>{t.removePinnedOnDrag}</span>
         </label>
         <label className="settings-check">
           <input
@@ -1530,7 +1709,7 @@ function SettingsPanel({
             checked={showOriginalTitle}
             onChange={event => setShowOriginalTitle(event.target.checked)}
           />
-          <span>Показывать оригинальный title</span>
+          <span>{t.showOriginalTitle}</span>
         </label>
         <label className="settings-check">
           <input
@@ -1538,7 +1717,7 @@ function SettingsPanel({
             checked={pinnedFan}
             onChange={event => setPinnedFan(event.target.checked)}
           />
-          <span>Закрепленные карточки веером</span>
+          <span>{t.pinnedFan}</span>
         </label>
         <label className="settings-check">
           <input
@@ -1546,18 +1725,31 @@ function SettingsPanel({
             checked={staticGridBackground}
             onChange={event => setStaticGridBackground(event.target.checked)}
           />
-          <span>Фон сетки статичный</span>
+          <span>{t.staticGridBackground}</span>
         </label>
       </div>
 
       <label className="settings-section">
-        <strong>Тема</strong>
+        <strong>{t.theme}</strong>
         <select
           value={theme}
-          aria-label="Тема"
+          aria-label={t.theme}
           onChange={event => setTheme(normalizeTheme(event.target.value))}
         >
           {THEME_OPTIONS.map(option => (
+            <option key={option.value} value={option.value}>{t[option.labelKey]}</option>
+          ))}
+        </select>
+      </label>
+
+      <label className="settings-section">
+        <strong>{t.language}</strong>
+        <select
+          value={language}
+          aria-label={t.language}
+          onChange={event => setLanguage(normalizeLanguage(event.target.value))}
+        >
+          {LANGUAGE_OPTIONS.map(option => (
             <option key={option.value} value={option.value}>{option.label}</option>
           ))}
         </select>
@@ -1566,7 +1758,7 @@ function SettingsPanel({
   );
 }
 
-function GroupNote({ note, activeQuery, searchMatchCount }) {
+function GroupNote({ note, t, activeQuery, searchMatchCount }) {
   return (
     <section
       className={`group-note note-group-${note.listingType}`}
@@ -1576,7 +1768,7 @@ function GroupNote({ note, activeQuery, searchMatchCount }) {
         <span className={`note-type note-${note.listingType}`}>{TYPE_LABELS[note.listingType] || note.assetType}</span>
         <strong>{note.title}</strong>
       </div>
-      <span>{activeQuery ? `${searchMatchCount} / ${note.count}` : `${note.count} ${pluralAsset(note.count)}`}</span>
+      <span>{activeQuery ? `${searchMatchCount} / ${note.count}` : `${note.count} ${note.count === 1 ? t.asset : t.assets}`}</span>
     </section>
   );
 }
@@ -1592,6 +1784,7 @@ function AssetCard({
   isCurrent,
   showOriginalTitle,
   isCompact = false,
+  t,
   onTogglePinned,
   onDuplicate,
   onDelete,
@@ -1653,19 +1846,19 @@ function AssetCard({
       </div>
       <div className="card-footer">
         <div className="card-actions">
-          <button className={`card-icon star-button ${isPinned ? "is-pinned" : ""}`} type="button" title="Pin" aria-label="Pin asset" onClick={onTogglePinned}>
+          <button className={`card-icon star-button ${isPinned ? "is-pinned" : ""}`} type="button" title={t.pin} aria-label={t.pin} onClick={onTogglePinned}>
             <StarIcon />
           </button>
           {kind === "free" ? (
-            <button className="card-icon delete-button" type="button" title="Delete duplicate" aria-label="Delete duplicate" onClick={onDelete}>
+            <button className="card-icon delete-button" type="button" title={t.deleteDuplicate} aria-label={t.deleteDuplicate} onClick={onDelete}>
               <TrashIcon />
             </button>
           ) : (
-            <button className="card-icon duplicate-button" type="button" title="Create movable copy" aria-label="Create movable copy" onClick={onDuplicate}>
+            <button className="card-icon duplicate-button" type="button" title={t.duplicate} aria-label={t.duplicate} onClick={onDuplicate}>
               <CopyIcon />
             </button>
           )}
-          <a className="card-icon link-button" href={asset.url} target="_blank" rel="noreferrer" title="Open Fab" aria-label="Open Fab listing">
+          <a className="card-icon link-button" href={asset.url} target="_blank" rel="noreferrer" title={t.openFab} aria-label={t.openFab}>
             <ExternalIcon />
           </a>
         </div>
@@ -1674,7 +1867,7 @@ function AssetCard({
   );
 }
 
-function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan, onRemove, onDragStart }) {
+function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan, onRemove, onDragStart, t }) {
   const pinnedAssets = Array.from(pinnedIds)
     .map(assetId => assetById.get(assetId))
     .filter(Boolean);
@@ -1717,13 +1910,13 @@ function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan,
                 <img src={asset.preview} alt="" draggable="false" referrerPolicy="no-referrer" />
               </div>
               <div className="hand-card-actions">
-                <button className="card-icon unpin-button" type="button" title="Unpin" aria-label="Unpin asset" onPointerDown={event => event.stopPropagation()} onClick={(event) => {
+                <button className="card-icon unpin-button" type="button" title={t.unpin} aria-label={t.unpin} onPointerDown={event => event.stopPropagation()} onClick={(event) => {
                   event.stopPropagation();
                   onRemove(asset.id);
                 }}>
                   <UnpinIcon />
                 </button>
-                <a className="card-icon link-button" href={asset.url} target="_blank" rel="noreferrer" title="Open Fab" aria-label="Open Fab listing" onPointerDown={event => event.stopPropagation()}>
+                <a className="card-icon link-button" href={asset.url} target="_blank" rel="noreferrer" title={t.openFab} aria-label={t.openFab} onPointerDown={event => event.stopPropagation()}>
                   <ExternalIcon />
                 </a>
               </div>
@@ -1735,7 +1928,7 @@ function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan,
   );
 }
 
-function HandGhost({ ghost, showOriginalTitle }) {
+function HandGhost({ ghost, showOriginalTitle, t }) {
   return (
     <div className="drag-ghost" style={{ left: ghost.x, top: ghost.y }}>
       <AssetCard
@@ -1748,6 +1941,7 @@ function HandGhost({ ghost, showOriginalTitle }) {
         isSearchMatch
         isCurrent={false}
         showOriginalTitle={showOriginalTitle}
+        t={t}
         onTogglePinned={() => {}}
         onDuplicate={() => {}}
       />
