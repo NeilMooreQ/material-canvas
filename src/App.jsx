@@ -31,11 +31,12 @@ const DEFAULT_SETTINGS = {
 
 const TYPE_LABELS = {
   material: "Materials",
+  "3d-model": "3D Models",
   decal: "Decals",
   brush: "Brushes",
 };
 
-const TYPE_ORDER = ["material", "decal", "brush"];
+const TYPE_ORDER = ["material", "3d-model", "decal", "brush"];
 
 const THEME_OPTIONS = [
   { value: "light", labelKey: "themeLight" },

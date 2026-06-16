@@ -868,6 +868,10 @@ svg {
   --note-accent: #5bd889;
 }
 
+.note-group-3d-model {
+  --note-accent: #d7b35a;
+}
+
 .note-group-decal {
   --note-accent: #58aaff;
 }
@@ -878,6 +882,10 @@ svg {
 
 .note-material {
   background: #5bd889;
+}
+
+.note-3d-model {
+  background: #d7b35a;
 }
 
 .note-decal {
@@ -909,6 +917,11 @@ svg {
 .asset-material {
   --asset-accent: #5bd889;
   --asset-tint: rgba(91, 216, 137, 0.11);
+}
+
+.asset-3d-model {
+  --asset-accent: #d7b35a;
+  --asset-tint: rgba(215, 179, 90, 0.12);
 }
 
 .asset-decal {

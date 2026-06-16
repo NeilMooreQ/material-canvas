@@ -1,16 +1,16 @@
 # Material Canvas
 
-Material Canvas is a static React/Vite reference board for browsing a large material library. It is built for artists who need to search, compare, pin, and arrange materials while working on different project profiles.
+Material Canvas is a static React/Vite reference board for browsing a large Quixel asset library. It is built for artists who need to search, compare, pin, and arrange materials, 3D models, decals, and brushes while working on different project profiles.
 
 ![Material Canvas English UI](docs/screenshots/material-canvas-en.png)
 
 ## Features
 
-- Large zoomable canvas with material cards grouped by category.
+- Large zoomable canvas with asset cards grouped by category.
 - Search with autocomplete, highlighted matches, and next-result navigation.
 - Per-profile Local Storage persistence for zoom, viewport position, pinned cards, free canvas copies, search state, filters, theme, and language.
 - Pinned hand, draggable duplicate cards, category jump controls, and compact cards at far zoom levels.
-- Asset type filtering for Materials, Decals, and Brushes.
+- Asset type filtering for Materials, 3D Models, Decals, and Brushes.
 - English and Russian UI switcher.
 - Static hosting friendly: no backend server is required.
 
@@ -59,17 +59,17 @@ The demo data in `public/data/assets.json` intentionally includes purchased-stat
 
 # Material Canvas на русском
 
-Material Canvas — статический React/Vite-инструмент для просмотра большой библиотеки материалов. Он помогает художнику искать, сравнивать, закреплять и раскладывать материалы по отдельным рабочим профилям.
+Material Canvas — статический React/Vite-инструмент для просмотра большой библиотеки Quixel-ассетов. Он помогает художнику искать, сравнивать, закреплять и раскладывать материалы, 3D-модели, декали и кисти по отдельным рабочим профилям.
 
 ![Material Canvas Russian UI](docs/screenshots/material-canvas-ru.png)
 
 ## Возможности
 
-- Большой zoomable canvas с карточками материалов и группировкой по категориям.
+- Большой zoomable canvas с карточками ассетов и группировкой по категориям.
 - Поиск с автодополнением, подсветкой совпадений и переходом к следующему результату.
 - Профили в Local Storage: сохраняются zoom, позиция canvas, закрепленные карточки, свободные копии, поиск, фильтры, тема и язык.
 - Pinned-рука, перетаскиваемые дубликаты, переходы по категориям и упрощенные карточки на дальнем зуме.
-- Фильтры по типам ассетов: Materials, Decals и Brushes.
+- Фильтры по типам ассетов: Materials, 3D Models, Decals и Brushes.
 - Переключение интерфейса между английским и русским.
 - Можно хостить как обычный статический сайт, backend не нужен.
 
