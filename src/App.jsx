@@ -15,6 +15,7 @@ const NOTE_H = 72;
 const GROUP_GAP = 104;
 const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 4.25;
+const COMPACT_CARD_ZOOM = 0.37;
 const DEFAULT_VIEW = { x: 32, y: 34, scale: 0.78 };
 const DEFAULT_SETTINGS = {
   hideUnpurchased: true,
@@ -172,6 +173,19 @@ function sanitizeBoard(board, assetById) {
   };
 }
 
+function sanitizeSearch(search, assetById) {
+  const queryInput = String(search?.queryInput || "");
+  const activeQuery = normalizeText(search?.activeQuery || "");
+  const nextMatchIndex = Math.max(0, Math.floor(Number(search?.nextMatchIndex) || 0));
+  const currentFocusId = assetById.has(search?.currentFocusId) ? String(search.currentFocusId) : "";
+  return {
+    queryInput,
+    activeQuery,
+    nextMatchIndex,
+    currentFocusId,
+  };
+}
+
 function createBlankProfile(name = DEFAULT_PROFILE_NAME, now = Date.now()) {
   return {
     id: makeProfileId(),
@@ -185,6 +199,7 @@ function createBlankProfile(name = DEFAULT_PROFILE_NAME, now = Date.now()) {
       freeCopies: [],
       freeCopySeq: 1,
     },
+    search: sanitizeSearch(null, new Map()),
   };
 }
 
@@ -208,6 +223,7 @@ function sanitizeProfile(profile, assetById, fallbackName = DEFAULT_PROFILE_NAME
       theme: normalizeTheme(settings.theme),
     },
     board: sanitizeBoard(profile?.board, assetById),
+    search: sanitizeSearch(profile?.search, assetById),
   };
 }
 
@@ -346,6 +362,15 @@ function buildLayout(assets) {
   };
 }
 
+function compareAssetCanvasOrder(a, b, assetPositions) {
+  const posA = assetPositions.get(a.id);
+  const posB = assetPositions.get(b.id);
+  if (!posA || !posB) return a.id.localeCompare(b.id);
+  const yDelta = posA.y - posB.y;
+  if (Math.abs(yDelta) > 1) return yDelta;
+  return posA.x - posB.x || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+}
+
 export default function App() {
   const viewportRef = useRef(null);
   const panRef = useRef(null);
@@ -353,6 +378,7 @@ export default function App() {
   const handDragRef = useRef(null);
   const profileFileInputRef = useRef(null);
   const skipNextAutosaveRef = useRef(false);
+  const skipNextSearchResetRef = useRef(false);
 
   const [assets, setAssets] = useState([]);
   const [loadError, setLoadError] = useState("");
@@ -474,8 +500,10 @@ export default function App() {
   const layout = useMemo(() => buildLayout(activeAssets), [activeAssets]);
   const searchMatches = useMemo(() => {
     if (!activeQuery) return [];
-    return activeAssets.filter(asset => asset.isSearchMatch);
-  }, [activeAssets, activeQuery]);
+    return activeAssets
+      .filter(asset => asset.isSearchMatch)
+      .sort((a, b) => compareAssetCanvasOrder(a, b, layout.assetPositions));
+  }, [activeAssets, activeQuery, layout.assetPositions]);
   const searchMatchSet = useMemo(() => new Set(searchMatches.map(asset => asset.id)), [searchMatches]);
   const searchSuggestion = useMemo(() => {
     const currentWord = queryInput.match(/[\p{L}\p{N}]+$/u)?.[0] || "";
@@ -489,6 +517,10 @@ export default function App() {
   }, [queryInput, searchVocabulary]);
 
   useEffect(() => {
+    if (skipNextSearchResetRef.current) {
+      skipNextSearchResetRef.current = false;
+      return;
+    }
     setNextMatchIndex(0);
     setCurrentFocusId("");
   }, [activeQuery, categoryFilter, enabledTypes, hideUnpurchased]);
@@ -544,6 +576,7 @@ export default function App() {
   }, []);
 
   const applyProfileToState = useCallback((profile) => {
+    skipNextSearchResetRef.current = true;
     setView(profile.view);
     setHideUnpurchased(profile.settings.hideUnpurchased);
     setEnabledTypes(new Set(profile.settings.enabledTypes));
@@ -556,10 +589,10 @@ export default function App() {
     setPinnedIds(new Set(profile.board.pinnedIds));
     setFreeCopies(profile.board.freeCopies);
     setFreeCopySeq(profile.board.freeCopySeq);
-    setQueryInput("");
-    setActiveQuery("");
-    setNextMatchIndex(0);
-    setCurrentFocusId("");
+    setQueryInput(profile.search.queryInput);
+    setActiveQuery(profile.search.activeQuery);
+    setNextMatchIndex(profile.search.nextMatchIndex);
+    setCurrentFocusId(profile.search.currentFocusId);
   }, []);
 
   useEffect(() => {
@@ -600,8 +633,14 @@ export default function App() {
         theme,
       },
       board: cleanBoard,
+      search: sanitizeSearch({
+        queryInput,
+        activeQuery,
+        nextMatchIndex,
+        currentFocusId,
+      }, assetById),
     };
-  }, [assetById, categoryFilter, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, pinnedFan, pinnedIds, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
+  }, [activeQuery, assetById, categoryFilter, currentFocusId, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, nextMatchIndex, pinnedFan, pinnedIds, queryInput, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
 
   const mergeCurrentIntoProfiles = useCallback((profileList, savedAt = Date.now()) => {
     if (!activeProfileId) return profileList;
@@ -740,10 +779,11 @@ export default function App() {
     const rect = viewportRef.current?.getBoundingClientRect();
     if (!rect || !layout.notes.length) return;
     const sortedNotes = layout.notes.slice().sort((a, b) => a.y - b.y);
-    const centerY = (rect.height / 2 - view.y) / view.scale;
+    const topY = -view.y / view.scale;
+    const threshold = Math.max(8, 56 / view.scale);
     const target = direction > 0
-      ? sortedNotes.find(note => note.y > centerY + 24) || sortedNotes[0]
-      : sortedNotes.slice().reverse().find(note => note.y < centerY - 24) || sortedNotes[sortedNotes.length - 1];
+      ? sortedNotes.find(note => note.y > topY + threshold) || sortedNotes[0]
+      : sortedNotes.slice().reverse().find(note => note.y < topY - threshold) || sortedNotes[sortedNotes.length - 1];
     setView(prev => ({
       ...prev,
       x: 32 - target.x * prev.scale,
@@ -882,7 +922,8 @@ export default function App() {
   }, [view]);
 
   const handleViewportPointerDown = useCallback((event) => {
-    if (event.button !== 0 || event.target.closest(".toolbar, .hand, button, a, input, select")) return;
+    if (![0, 1].includes(event.button) || event.target.closest(".toolbar, .hand, button, a, input, select")) return;
+    event.preventDefault();
     if (document.activeElement?.matches?.("input, textarea, select, [contenteditable='true']")) {
       document.activeElement.blur();
     }
@@ -994,15 +1035,17 @@ export default function App() {
     };
   }, [createFreeCopy, removePinnedOnDrag, screenToWorld, showToast]);
 
+  const nextMatchDisplayIndex = searchMatches.length ? (nextMatchIndex % searchMatches.length) + 1 : 0;
   const matchButtonLabel = activeQuery && searchMatches.length
-    ? `Далее ${nextMatchIndex + 1}/${searchMatches.length}`
+    ? `Далее ${nextMatchDisplayIndex}/${searchMatches.length}`
     : "Поиск";
 
-  const activeSummary = `${filteredBaseAssets.length.toLocaleString("ru-RU")} / ${assets.length.toLocaleString("ru-RU")} assets`;
   const visibleAssetCount = visibleAssets.length;
   const activeAssetCount = activeAssets.length;
+  const viewportZoom = Math.round(view.scale * 100);
+  const isCompactCardZoom = viewportZoom <= Math.round(COMPACT_CARD_ZOOM * 100);
   const viewportStats = {
-    zoom: Math.round(view.scale * 100),
+    zoom: viewportZoom,
     x: (-view.x / view.scale).toFixed(2),
     y: (-view.y / view.scale).toFixed(2),
   };
@@ -1018,7 +1061,7 @@ export default function App() {
   return (
     <div className={`app-shell theme-${theme}`}>
       <Toolbar
-        assetSummary={loadError ? "Load failed" : activeSummary}
+        loadError={loadError}
         queryInput={queryInput}
         setQueryInput={handleQueryInputChange}
         searchSuggestion={searchSuggestion}
@@ -1066,12 +1109,15 @@ export default function App() {
 
       <main
         ref={viewportRef}
-        className={`viewport ${staticGridBackground ? "grid-static" : "grid-dynamic"} ${panRef.current ? "is-panning" : ""}`}
+        className={`viewport ${staticGridBackground ? "grid-static" : "grid-dynamic"} ${panRef.current ? "is-panning" : ""} ${isCompactCardZoom ? "is-far-zoom" : ""}`}
         style={viewportGridStyle}
         onPointerDown={handleViewportPointerDown}
         onPointerMove={handleViewportPointerMove}
         onPointerUp={endPointerGesture}
         onPointerCancel={endPointerGesture}
+        onAuxClick={(event) => {
+          if (event.button === 1) event.preventDefault();
+        }}
         onWheel={handleWheel}
       >
         <div
@@ -1105,6 +1151,7 @@ export default function App() {
                   isSearchMatch={!activeQuery || searchMatchSet.has(asset.id)}
                   isCurrent={currentFocusId === asset.id}
                   showOriginalTitle={showOriginalTitle}
+                  isCompact={isCompactCardZoom}
                   onTogglePinned={() => togglePinned(asset.id)}
                   onDuplicate={() => duplicateAsset(asset.id)}
                 />
@@ -1127,6 +1174,7 @@ export default function App() {
                   isSearchMatch={!activeQuery || searchMatchSet.has(asset.id)}
                   isCurrent={currentFocusId === asset.id}
                   showOriginalTitle={showOriginalTitle}
+                  isCompact={isCompactCardZoom}
                   onTogglePinned={() => togglePinned(asset.id)}
                   onDelete={() => deleteFreeCopy(copy.copyId)}
                   onPointerDown={(event) => startFreeDrag(event, copy)}
@@ -1175,7 +1223,7 @@ export default function App() {
 }
 
 function Toolbar({
-  assetSummary,
+  loadError,
   typeCounts,
   enabledTypes,
   onToggleType,
@@ -1225,8 +1273,8 @@ function Toolbar({
       <div className="brand">
         <span className="brand-mark">Q</span>
         <div>
-          <strong>Quixel Asset Canvas</strong>
-          <span>{assetSummary}</span>
+          <strong>Material Canvas</strong>
+          {loadError && <span>Ошибка загрузки данных</span>}
         </div>
       </div>
 
@@ -1521,7 +1569,7 @@ function SettingsPanel({
 function GroupNote({ note, activeQuery, searchMatchCount }) {
   return (
     <section
-      className="group-note"
+      className={`group-note note-group-${note.listingType}`}
       style={{ transform: `translate(${note.x}px, ${note.y}px)`, width: note.width, height: note.height }}
     >
       <div>
@@ -1543,6 +1591,7 @@ function AssetCard({
   isSearchMatch,
   isCurrent,
   showOriginalTitle,
+  isCompact = false,
   onTogglePinned,
   onDuplicate,
   onDelete,
@@ -1550,23 +1599,42 @@ function AssetCard({
 }) {
   const className = [
     "asset-card",
+    `asset-${asset.listingType}`,
     kind === "free" ? "is-free" : "",
     hasSearch && !isSearchMatch ? "search-dim" : "",
     hasSearch && isSearchMatch ? "search-match" : "",
     isCurrent ? "current-hit" : "",
+    isCompact ? "is-compact" : "",
   ].filter(Boolean).join(" ");
   const primaryTitle = showOriginalTitle ? asset.title : (asset.title_ru || asset.title);
   const secondaryTitle = showOriginalTitle ? asset.title_ru : "";
+  const cardStyle = {
+    transform: `translate(${x}px, ${y}px)`,
+    "--asset-preview": `url(${JSON.stringify(asset.preview || "")})`,
+  };
+  const openAsset = useCallback((event) => {
+    if (event.target.closest("button, a")) return;
+    window.open(asset.url, "_blank", "noreferrer");
+  }, [asset.url]);
+
+  if (isCompact) {
+    return (
+      <article
+        className={className}
+        style={cardStyle}
+        title={primaryTitle}
+        onPointerDown={onPointerDown}
+        onDoubleClick={openAsset}
+      />
+    );
+  }
 
   return (
     <article
       className={className}
-      style={{ transform: `translate(${x}px, ${y}px)` }}
+      style={cardStyle}
       onPointerDown={onPointerDown}
-      onDoubleClick={(event) => {
-        if (event.target.closest("button, a")) return;
-        window.open(asset.url, "_blank", "noreferrer");
-      }}
+      onDoubleClick={openAsset}
     >
       <div className="card-title">
         <span className="title-text" title={`${asset.title}\n${asset.title_ru}`}>{primaryTitle}</span>
@@ -1649,11 +1717,11 @@ function Hand({ pinnedIds, assetById, windowWidth, showOriginalTitle, pinnedFan,
                 <img src={asset.preview} alt="" draggable="false" referrerPolicy="no-referrer" />
               </div>
               <div className="hand-card-actions">
-                <button className="card-icon star-button is-pinned" type="button" title="Unpin" aria-label="Unpin asset" onClick={(event) => {
+                <button className="card-icon unpin-button" type="button" title="Unpin" aria-label="Unpin asset" onPointerDown={event => event.stopPropagation()} onClick={(event) => {
                   event.stopPropagation();
                   onRemove(asset.id);
                 }}>
-                  <StarIcon />
+                  <UnpinIcon />
                 </button>
                 <a className="card-icon link-button" href={asset.url} target="_blank" rel="noreferrer" title="Open Fab" aria-label="Open Fab listing" onPointerDown={event => event.stopPropagation()}>
                   <ExternalIcon />
@@ -1709,6 +1777,10 @@ function SettingsIcon() {
 
 function StarIcon() {
   return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 2.6 2.9 5.88 6.49.94-4.7 4.58 1.11 6.47L12 17.42l-5.8 3.05L7.31 14l-4.7-4.58 6.49-.94L12 2.6Z" /></svg>;
+}
+
+function UnpinIcon() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4.7 3.3 16 16-1.4 1.4-3.55-3.55V22h-2v-6.15l-1.9-1.9L7.1 18.7l-1.42-1.42 4.75-4.74L6.95 9.05 3.3 5.4l1.4-2.1Zm6.62 3.02 1.94 1.94V6.5h-2.62L8.9 4.76A3 3 0 0 1 11 4h5a3 3 0 0 1 3 3v4.17l-2-2V7a1 1 0 0 0-1-1h-4a1 1 0 0 0-.68.32ZM5 8.82 6.17 10H5V8.82ZM9.83 12H7.41l1.2-1.2L9.83 12Zm5.43 0H20v2h-2.73l-2.01-2Z" /></svg>;
 }
 
 function CopyIcon() {

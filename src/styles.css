@@ -667,7 +667,8 @@ svg {
   border-radius: 7px;
   background: var(--popover-bg);
   color: var(--text);
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.32);
+  opacity: 0.62;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.22);
   pointer-events: none;
   backdrop-filter: blur(14px);
 }
@@ -729,13 +730,14 @@ svg {
 
 .group-note {
   position: absolute;
+  --note-accent: var(--accent);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
   padding: 14px 18px;
   border: 1px solid var(--line);
-  border-left: 4px solid var(--accent);
+  border-left: 4px solid var(--note-accent);
   border-radius: 8px;
   background: var(--note-bg);
   color: var(--note-text);
@@ -751,6 +753,7 @@ svg {
   overflow: hidden;
   max-width: 100%;
   margin-top: 5px;
+  color: color-mix(in srgb, var(--note-accent) 38%, var(--note-text));
   font-size: 23px;
   letter-spacing: 0;
   text-overflow: ellipsis;
@@ -771,32 +774,67 @@ svg {
   padding: 0 8px;
   border-radius: 5px;
   color: #121214;
-  background: var(--accent);
+  background: var(--note-accent);
   font-size: 11px;
   font-weight: 900;
   text-transform: uppercase;
 }
 
+.note-group-material {
+  --note-accent: #5bd889;
+}
+
+.note-group-decal {
+  --note-accent: #58aaff;
+}
+
+.note-group-brush {
+  --note-accent: #ff7d7d;
+}
+
+.note-material {
+  background: #5bd889;
+}
+
 .note-decal {
-  background: #ffc95b;
+  background: #58aaff;
 }
 
 .note-brush {
-  background: #b2f38c;
+  background: #ff7d7d;
 }
 
 .asset-card {
   position: absolute;
+  --asset-accent: var(--accent);
+  --asset-tint: rgba(88, 196, 255, 0.1);
   width: var(--card-w);
   height: var(--card-h);
   overflow: hidden;
-  border: 1px solid var(--line);
+  border: 1px solid color-mix(in srgb, var(--asset-accent) 32%, var(--line));
   border-radius: 8px;
-  background: var(--card-bg);
+  background:
+    linear-gradient(135deg, var(--asset-tint), transparent 62%),
+    var(--card-bg);
   color: var(--card-text);
   box-shadow: 0 10px 22px rgba(0, 0, 0, 0.22);
   transform-origin: 0 0;
   transition: opacity 160ms ease, border-color 160ms ease, box-shadow 160ms ease, filter 160ms ease;
+}
+
+.asset-material {
+  --asset-accent: #5bd889;
+  --asset-tint: rgba(91, 216, 137, 0.11);
+}
+
+.asset-decal {
+  --asset-accent: #58aaff;
+  --asset-tint: rgba(88, 170, 255, 0.12);
+}
+
+.asset-brush {
+  --asset-accent: #ff7d7d;
+  --asset-tint: rgba(255, 125, 125, 0.12);
 }
 
 .asset-card.search-dim {
@@ -824,7 +862,9 @@ svg {
   align-content: center;
   gap: 2px;
   padding: 7px 10px;
-  background: var(--card-title-bg);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--asset-accent) 18%, transparent), transparent 72%),
+    var(--card-title-bg);
 }
 
 .title-text,
@@ -862,6 +902,29 @@ svg {
   pointer-events: none;
 }
 
+.viewport.is-far-zoom .asset-card {
+  background:
+    var(--asset-preview) center / cover no-repeat,
+    var(--card-bg);
+  box-shadow: none;
+  transition: none;
+}
+
+.viewport.is-far-zoom .asset-card.search-dim {
+  opacity: 0.18;
+  filter: none;
+}
+
+.viewport.is-far-zoom .asset-card.search-match {
+  border-color: var(--warn);
+  box-shadow: none;
+}
+
+.viewport.is-far-zoom .asset-card.current-hit {
+  border-color: var(--accent-strong);
+  box-shadow: 0 0 0 2px rgba(88, 196, 255, 0.5);
+}
+
 .card-footer {
   display: flex;
   align-items: center;
@@ -897,6 +960,12 @@ svg {
 
 .delete-button {
   color: #ff8c8c;
+}
+
+.unpin-button {
+  color: var(--warn);
+  border-color: #8c7334;
+  background: #322b19;
 }
 
 .duplicate-button {
@@ -1028,12 +1097,12 @@ svg {
 
 .hand-card-actions .card-icon {
   width: 22px;
-  height: 20px;
+  height: 22px;
 }
 
 .hand-card-actions .card-icon svg {
-  width: 13px;
-  height: 13px;
+  width: 14px;
+  height: 14px;
 }
 
 .drag-ghost {
