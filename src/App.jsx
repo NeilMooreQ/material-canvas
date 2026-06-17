@@ -21,8 +21,36 @@ const GROUP_GAP = 104;
 const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 4.25;
 const COMPACT_CARD_ZOOM = 0.37;
-const ARROW_PAN_SPEED = 720;
-const ARROW_PAN_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+const VISUAL_ZOOM_MIN = -12;
+const VISUAL_ZOOM_MAX = 12;
+const KEYBOARD_PAN_FACTOR_VALUES = [0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+const KEYBOARD_PAN_MIN_SPEED = 240;
+const KEYBOARD_PAN_MAX_SPEED = 24000;
+const KEYBOARD_PAN_SPEED_OPTIONS = KEYBOARD_PAN_FACTOR_VALUES.map((factor, index) => ({
+  factor,
+  label: `x${factor}`,
+  speed: Math.round((
+    KEYBOARD_PAN_MIN_SPEED
+    * Math.pow(KEYBOARD_PAN_MAX_SPEED / KEYBOARD_PAN_MIN_SPEED, index / (KEYBOARD_PAN_FACTOR_VALUES.length - 1))
+  ) / 10) * 10,
+}));
+KEYBOARD_PAN_SPEED_OPTIONS[0].speed = KEYBOARD_PAN_MIN_SPEED;
+KEYBOARD_PAN_SPEED_OPTIONS[KEYBOARD_PAN_SPEED_OPTIONS.length - 1].speed = KEYBOARD_PAN_MAX_SPEED;
+const KEYBOARD_PAN_DEFAULT_FACTOR = 2;
+const KEYBOARD_PAN_DEFAULT_SPEED = (
+  KEYBOARD_PAN_SPEED_OPTIONS.find(option => option.factor === KEYBOARD_PAN_DEFAULT_FACTOR)
+  || KEYBOARD_PAN_SPEED_OPTIONS[0]
+).speed;
+const KEYBOARD_PAN_ACCELERATION = 12;
+const KEYBOARD_PAN_FRICTION = 16;
+const KEYBOARD_PAN_STOP_EPSILON = 2;
+const KEYBOARD_PAN_ARROW_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+const KEYBOARD_PAN_WASD = new Map([
+  ["KeyA", "ArrowLeft"],
+  ["KeyD", "ArrowRight"],
+  ["KeyW", "ArrowUp"],
+  ["KeyS", "ArrowDown"],
+]);
 const DEFAULT_VIEW = { x: 32, y: 34, scale: 0.78 };
 const DEFAULT_SETTINGS = {
   hideUnpurchased: true,
@@ -33,6 +61,7 @@ const DEFAULT_SETTINGS = {
   pinnedFan: false,
   staticGridBackground: true,
   lightweightCards: false,
+  keyboardPanSpeed: KEYBOARD_PAN_DEFAULT_SPEED,
   theme: "dark",
   language: "en",
 };
@@ -227,6 +256,8 @@ const UI_TEXT = {
     pinnedFan: "Pinned cards fan",
     staticGridBackground: "Static grid background",
     lightweightCards: "Lightweight cards",
+    keyboardPanSpeed: "Canvas movement speed",
+    keyboardPanSpeedValue: option => option.label,
     theme: "Theme",
     language: "Language",
     themeLight: "Light",
@@ -247,7 +278,7 @@ const UI_TEXT = {
       { keys: "F", label: "Toggle focus mode" },
       { keys: "/", label: "Show or hide shortcuts" },
       { keys: "E", label: "Toggle lightweight cards" },
-      { keys: "Arrow keys", label: "Move around the canvas" },
+      { keys: "Arrow keys / WASD", label: "Move around the canvas" },
       { keys: "Ctrl+Z", label: "Undo last canvas action" },
       { keys: "1-9", label: "Load profile by list order" },
     ],
@@ -306,6 +337,8 @@ const UI_TEXT = {
     pinnedFan: "Закрепленные карточки веером",
     staticGridBackground: "Фон сетки статичный",
     lightweightCards: "Легкий режим карточек",
+    keyboardPanSpeed: "Скорость передвижения",
+    keyboardPanSpeedValue: option => option.label,
     theme: "Тема",
     language: "Язык",
     themeLight: "Светлая",
@@ -326,7 +359,7 @@ const UI_TEXT = {
       { keys: "F", label: "Включить или выключить режим фокуса" },
       { keys: "/", label: "Показать или скрыть горячие клавиши" },
       { keys: "E", label: "Включить или выключить легкие карточки" },
-      { keys: "Стрелки", label: "Передвигаться по canvas" },
+      { keys: "Стрелки / WASD", label: "Передвигаться по canvas" },
       { keys: "Ctrl+Z", label: "Отменить последнее действие на канвасе" },
       { keys: "1-9", label: "Загрузить профиль по порядку в списке" },
     ],
@@ -485,6 +518,45 @@ function normalizeLanguage(language) {
   return LANGUAGE_OPTIONS.some(option => option.value === language) ? language : DEFAULT_SETTINGS.language;
 }
 
+function normalizeKeyboardPanSpeed(speed) {
+  const numericSpeed = Number(speed);
+  if (!Number.isFinite(numericSpeed)) return DEFAULT_SETTINGS.keyboardPanSpeed;
+  return KEYBOARD_PAN_SPEED_OPTIONS.reduce((closest, option) => (
+    Math.abs(option.speed - numericSpeed) < Math.abs(closest.speed - numericSpeed) ? option : closest
+  ), KEYBOARD_PAN_SPEED_OPTIONS[0]).speed;
+}
+
+function getKeyboardPanSpeedIndex(speed) {
+  const normalizedSpeed = normalizeKeyboardPanSpeed(speed);
+  const index = KEYBOARD_PAN_SPEED_OPTIONS.findIndex(option => option.speed === normalizedSpeed);
+  return index >= 0 ? index : 0;
+}
+
+function getKeyboardPanSpeedOption(speed) {
+  return KEYBOARD_PAN_SPEED_OPTIONS[getKeyboardPanSpeedIndex(speed)];
+}
+
+function formatVisualZoom(zoom) {
+  if (zoom > 0) return `+${zoom}`;
+  return String(zoom);
+}
+
+function scaleToVisualZoom(scale) {
+  const clampedScale = clamp(Number(scale) || DEFAULT_VIEW.scale, MIN_ZOOM, MAX_ZOOM);
+  if (Math.abs(clampedScale - DEFAULT_VIEW.scale) < 0.0001) return 0;
+  if (clampedScale > DEFAULT_VIEW.scale) {
+    const positiveZoom = Math.log(clampedScale / DEFAULT_VIEW.scale) / Math.log(MAX_ZOOM / DEFAULT_VIEW.scale);
+    return clamp(Math.round(positiveZoom * VISUAL_ZOOM_MAX), 0, VISUAL_ZOOM_MAX);
+  }
+  const negativeZoom = Math.log(DEFAULT_VIEW.scale / clampedScale) / Math.log(DEFAULT_VIEW.scale / MIN_ZOOM);
+  return clamp(Math.round(negativeZoom * VISUAL_ZOOM_MIN), VISUAL_ZOOM_MIN, 0);
+}
+
+function getKeyboardPanKey(event) {
+  if (KEYBOARD_PAN_ARROW_KEYS.has(event.key)) return event.key;
+  return KEYBOARD_PAN_WASD.get(event.code) || "";
+}
+
 function sanitizeView(view) {
   return {
     x: Number.isFinite(Number(view?.x)) ? Number(view.x) : DEFAULT_VIEW.x,
@@ -562,6 +634,7 @@ function sanitizeProfile(profile, assetById, fallbackName = DEFAULT_PROFILE_NAME
       pinnedFan: settings.pinnedFan ?? DEFAULT_SETTINGS.pinnedFan,
       staticGridBackground: settings.staticGridBackground ?? DEFAULT_SETTINGS.staticGridBackground,
       lightweightCards: settings.lightweightCards ?? DEFAULT_SETTINGS.lightweightCards,
+      keyboardPanSpeed: normalizeKeyboardPanSpeed(settings.keyboardPanSpeed),
       theme: normalizeTheme(settings.theme),
       language: normalizeLanguage(settings.language),
     },
@@ -814,9 +887,11 @@ function compareAssetCanvasOrder(a, b, assetPositions) {
 export default function App() {
   const viewportRef = useRef(null);
   const panRef = useRef(null);
-  const arrowPanKeysRef = useRef(new Set());
-  const arrowPanFrameRef = useRef(0);
-  const arrowPanLastAtRef = useRef(0);
+  const keyboardPanKeysRef = useRef(new Set());
+  const keyboardPanFrameRef = useRef(0);
+  const keyboardPanLastAtRef = useRef(0);
+  const keyboardPanVelocityRef = useRef({ x: 0, y: 0 });
+  const keyboardPanSpeedRef = useRef(DEFAULT_SETTINGS.keyboardPanSpeed);
   const freeDragRef = useRef(null);
   const handDragRef = useRef(null);
   const handRef = useRef(null);
@@ -839,6 +914,7 @@ export default function App() {
   const [pinnedFan, setPinnedFan] = useState(DEFAULT_SETTINGS.pinnedFan);
   const [staticGridBackground, setStaticGridBackground] = useState(DEFAULT_SETTINGS.staticGridBackground);
   const [lightweightCards, setLightweightCards] = useState(DEFAULT_SETTINGS.lightweightCards);
+  const [keyboardPanSpeed, setKeyboardPanSpeed] = useState(DEFAULT_SETTINGS.keyboardPanSpeed);
   const [theme, setTheme] = useState(DEFAULT_SETTINGS.theme);
   const [language, setLanguage] = useState(DEFAULT_SETTINGS.language);
   const [queryInput, setQueryInput] = useState("");
@@ -860,6 +936,7 @@ export default function App() {
 
   const assetById = useMemo(() => new Map(assets.map(asset => [asset.id, asset])), [assets]);
   const t = UI_TEXT[language] || UI_TEXT.en;
+  keyboardPanSpeedRef.current = keyboardPanSpeed;
 
   useEffect(() => {
     let cancelled = false;
@@ -1044,6 +1121,7 @@ export default function App() {
     setPinnedFan(profile.settings.pinnedFan);
     setStaticGridBackground(profile.settings.staticGridBackground);
     setLightweightCards(profile.settings.lightweightCards);
+    setKeyboardPanSpeed(normalizeKeyboardPanSpeed(profile.settings.keyboardPanSpeed));
     setTheme(normalizeTheme(profile.settings.theme));
     setLanguage(normalizeLanguage(profile.settings.language));
     setPinnedIds(new Set(profile.board.pinnedIds));
@@ -1091,6 +1169,7 @@ export default function App() {
         pinnedFan,
         staticGridBackground,
         lightweightCards,
+        keyboardPanSpeed: normalizeKeyboardPanSpeed(keyboardPanSpeed),
         theme,
         language,
       },
@@ -1102,7 +1181,7 @@ export default function App() {
         currentFocusId,
       }, assetById),
     };
-  }, [activeQuery, assetById, categoryFilter, currentFocusId, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, language, lightweightCards, nextMatchIndex, pinnedFan, pinnedIds, queryInput, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
+  }, [activeQuery, assetById, categoryFilter, currentFocusId, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, keyboardPanSpeed, language, lightweightCards, nextMatchIndex, pinnedFan, pinnedIds, queryInput, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
 
   const mergeCurrentIntoProfiles = useCallback((profileList, savedAt = Date.now()) => {
     if (!activeProfileId) return profileList;
@@ -1153,6 +1232,7 @@ export default function App() {
         pinnedFan,
         staticGridBackground,
         lightweightCards,
+        keyboardPanSpeed: normalizeKeyboardPanSpeed(keyboardPanSpeed),
         theme,
         language,
       },
@@ -1165,7 +1245,7 @@ export default function App() {
     applyProfileToState(profile);
     writeProfileStore(next, profile.id);
     showToast(t.profileCreated(profile.name));
-  }, [applyProfileToState, categoryFilter, enabledTypes, hideUnpurchased, language, lightweightCards, mergeCurrentIntoProfiles, pinnedFan, profileNameInput, profiles, removePinnedOnDrag, showOriginalTitle, showToast, staticGridBackground, t, theme, view]);
+  }, [applyProfileToState, categoryFilter, enabledTypes, hideUnpurchased, keyboardPanSpeed, language, lightweightCards, mergeCurrentIntoProfiles, pinnedFan, profileNameInput, profiles, removePinnedOnDrag, showOriginalTitle, showToast, staticGridBackground, t, theme, view]);
 
   const loadProfile = useCallback((profileId) => {
     const target = profiles.find(profile => profile.id === profileId);
@@ -1392,26 +1472,21 @@ export default function App() {
     showToast(t.undoApplied);
   }, [restoreBoardSnapshot, showToast, t]);
 
-  const stopArrowPan = useCallback(() => {
-    arrowPanKeysRef.current.clear();
-    arrowPanLastAtRef.current = 0;
-    if (arrowPanFrameRef.current) {
-      window.cancelAnimationFrame(arrowPanFrameRef.current);
-      arrowPanFrameRef.current = 0;
+  const stopKeyboardPan = useCallback(() => {
+    keyboardPanKeysRef.current.clear();
+    keyboardPanVelocityRef.current = { x: 0, y: 0 };
+    keyboardPanLastAtRef.current = 0;
+    if (keyboardPanFrameRef.current) {
+      window.cancelAnimationFrame(keyboardPanFrameRef.current);
+      keyboardPanFrameRef.current = 0;
     }
   }, []);
 
-  const stepArrowPan = useCallback((timestamp) => {
-    const keys = arrowPanKeysRef.current;
-    if (!keys.size) {
-      arrowPanFrameRef.current = 0;
-      arrowPanLastAtRef.current = 0;
-      return;
-    }
-
-    const lastTimestamp = arrowPanLastAtRef.current || timestamp;
+  const stepKeyboardPan = useCallback((timestamp) => {
+    const keys = keyboardPanKeysRef.current;
+    const lastTimestamp = keyboardPanLastAtRef.current || timestamp;
     const deltaSeconds = Math.min(0.05, Math.max(0, (timestamp - lastTimestamp) / 1000));
-    arrowPanLastAtRef.current = timestamp;
+    keyboardPanLastAtRef.current = timestamp;
 
     let xDirection = 0;
     let yDirection = 0;
@@ -1421,23 +1496,44 @@ export default function App() {
     if (keys.has("ArrowDown")) yDirection -= 1;
 
     const length = Math.hypot(xDirection, yDirection);
-    if (length > 0 && deltaSeconds > 0) {
-      const distance = ARROW_PAN_SPEED * deltaSeconds;
+    const targetSpeed = keyboardPanSpeedRef.current;
+    const targetVelocity = length > 0
+      ? {
+        x: (xDirection / length) * targetSpeed,
+        y: (yDirection / length) * targetSpeed,
+      }
+      : { x: 0, y: 0 };
+    const velocity = keyboardPanVelocityRef.current;
+    const blend = 1 - Math.exp(-(length > 0 ? KEYBOARD_PAN_ACCELERATION : KEYBOARD_PAN_FRICTION) * deltaSeconds);
+    const nextVelocity = {
+      x: velocity.x + (targetVelocity.x - velocity.x) * blend,
+      y: velocity.y + (targetVelocity.y - velocity.y) * blend,
+    };
+    keyboardPanVelocityRef.current = nextVelocity;
+
+    const velocityLength = Math.hypot(nextVelocity.x, nextVelocity.y);
+    if (deltaSeconds > 0 && velocityLength > KEYBOARD_PAN_STOP_EPSILON) {
       setView(prev => ({
         ...prev,
-        x: prev.x + (xDirection / length) * distance,
-        y: prev.y + (yDirection / length) * distance,
+        x: prev.x + nextVelocity.x * deltaSeconds,
+        y: prev.y + nextVelocity.y * deltaSeconds,
       }));
     }
 
-    arrowPanFrameRef.current = window.requestAnimationFrame(stepArrowPan);
+    if (keys.size || velocityLength > KEYBOARD_PAN_STOP_EPSILON) {
+      keyboardPanFrameRef.current = window.requestAnimationFrame(stepKeyboardPan);
+    } else {
+      keyboardPanVelocityRef.current = { x: 0, y: 0 };
+      keyboardPanLastAtRef.current = 0;
+      keyboardPanFrameRef.current = 0;
+    }
   }, []);
 
-  const startArrowPan = useCallback(() => {
-    if (!arrowPanFrameRef.current) {
-      arrowPanFrameRef.current = window.requestAnimationFrame(stepArrowPan);
+  const startKeyboardPan = useCallback(() => {
+    if (!keyboardPanFrameRef.current) {
+      keyboardPanFrameRef.current = window.requestAnimationFrame(stepKeyboardPan);
     }
-  }, [stepArrowPan]);
+  }, [stepKeyboardPan]);
 
   useEffect(() => {
     function isEditableTarget(target) {
@@ -1446,10 +1542,11 @@ export default function App() {
 
     function handleHotkey(event) {
       const key = event.key.toLowerCase();
-      if (!event.ctrlKey && !event.metaKey && !event.altKey && ARROW_PAN_KEYS.has(event.key) && !isEditableTarget(event.target)) {
+      const keyboardPanKey = getKeyboardPanKey(event);
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && keyboardPanKey && !isEditableTarget(event.target)) {
         event.preventDefault();
-        arrowPanKeysRef.current.add(event.key);
-        startArrowPan();
+        keyboardPanKeysRef.current.add(keyboardPanKey);
+        startKeyboardPan();
         return;
       }
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && (key === "z" || event.code === "KeyZ") && !isEditableTarget(event.target)) {
@@ -1503,23 +1600,22 @@ export default function App() {
     }
 
     function handleKeyUp(event) {
-      if (!ARROW_PAN_KEYS.has(event.key)) return;
-      arrowPanKeysRef.current.delete(event.key);
-      if (!arrowPanKeysRef.current.size) {
-        stopArrowPan();
-      }
+      const keyboardPanKey = getKeyboardPanKey(event);
+      if (!keyboardPanKey) return;
+      keyboardPanKeysRef.current.delete(keyboardPanKey);
+      startKeyboardPan();
     }
 
     window.addEventListener("keydown", handleHotkey);
     window.addEventListener("keyup", handleKeyUp);
-    window.addEventListener("blur", stopArrowPan);
+    window.addEventListener("blur", stopKeyboardPan);
     return () => {
       window.removeEventListener("keydown", handleHotkey);
       window.removeEventListener("keyup", handleKeyUp);
-      window.removeEventListener("blur", stopArrowPan);
-      stopArrowPan();
+      window.removeEventListener("blur", stopKeyboardPan);
+      stopKeyboardPan();
     };
-  }, [goToNextMatch, loadProfile, profiles, resetView, startArrowPan, stopArrowPan, undoLastAction]);
+  }, [goToNextMatch, loadProfile, profiles, resetView, startKeyboardPan, stopKeyboardPan, undoLastAction]);
 
   const togglePinned = useCallback((assetId) => {
     pushUndoSnapshot();
@@ -1731,10 +1827,10 @@ export default function App() {
 
   const visibleAssetCount = visibleAssets.length;
   const activeAssetCount = activeAssets.length;
-  const viewportZoom = Math.round(view.scale * 100);
-  const isCompactCardZoom = focusMode || lightweightCards || viewportZoom <= Math.round(COMPACT_CARD_ZOOM * 100);
+  const viewportZoom = scaleToVisualZoom(view.scale);
+  const isCompactCardZoom = focusMode || lightweightCards || view.scale <= COMPACT_CARD_ZOOM;
   const viewportStats = {
-    zoom: viewportZoom,
+    zoom: formatVisualZoom(viewportZoom),
     x: (-view.x / view.scale).toFixed(2),
     y: (-view.y / view.scale).toFixed(2),
   };
@@ -1784,6 +1880,8 @@ export default function App() {
         setStaticGridBackground={setStaticGridBackground}
         lightweightCards={lightweightCards}
         setLightweightCards={setLightweightCards}
+        keyboardPanSpeed={keyboardPanSpeed}
+        setKeyboardPanSpeed={setKeyboardPanSpeed}
         theme={theme}
         setTheme={setTheme}
         setLanguage={setLanguage}
@@ -1989,6 +2087,8 @@ function Toolbar({
   setStaticGridBackground,
   lightweightCards,
   setLightweightCards,
+  keyboardPanSpeed,
+  setKeyboardPanSpeed,
   theme,
   setTheme,
   setLanguage,
@@ -2155,6 +2255,8 @@ function Toolbar({
             setStaticGridBackground={setStaticGridBackground}
             lightweightCards={lightweightCards}
             setLightweightCards={setLightweightCards}
+            keyboardPanSpeed={keyboardPanSpeed}
+            setKeyboardPanSpeed={setKeyboardPanSpeed}
             theme={theme}
             setTheme={setTheme}
             setLanguage={setLanguage}
@@ -2331,6 +2433,8 @@ function SettingsPanel({
   setStaticGridBackground,
   lightweightCards,
   setLightweightCards,
+  keyboardPanSpeed,
+  setKeyboardPanSpeed,
   theme,
   setTheme,
   setLanguage,
@@ -2338,6 +2442,8 @@ function SettingsPanel({
   activeAssetCount,
 }) {
   const categoryOptions = useMemo(() => groupCategoryOptions(categories, language), [categories, language]);
+  const keyboardPanSpeedIndex = getKeyboardPanSpeedIndex(keyboardPanSpeed);
+  const keyboardPanSpeedOption = getKeyboardPanSpeedOption(keyboardPanSpeed);
 
   return (
     <section className="settings-popover" aria-label={t.settings}>
@@ -2434,6 +2540,24 @@ function SettingsPanel({
           <span>{t.lightweightCards}</span>
         </label>
       </div>
+
+      <label className="settings-section settings-range">
+        <div className="settings-range-head">
+          <strong>{t.keyboardPanSpeed}</strong>
+          <span>{t.keyboardPanSpeedValue(keyboardPanSpeedOption)}</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={KEYBOARD_PAN_SPEED_OPTIONS.length - 1}
+          step={1}
+          value={keyboardPanSpeedIndex}
+          onChange={event => {
+            const option = KEYBOARD_PAN_SPEED_OPTIONS[Number(event.target.value)] || keyboardPanSpeedOption;
+            setKeyboardPanSpeed(option.speed);
+          }}
+        />
+      </label>
 
       <label className="settings-section">
         <strong>{t.theme}</strong>

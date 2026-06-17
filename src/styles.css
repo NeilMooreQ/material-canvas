@@ -568,6 +568,29 @@ img {
   gap: 7px;
 }
 
+.settings-range {
+  gap: 10px;
+}
+
+.settings-range-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-range-head span {
+  color: var(--accent-strong);
+  font-size: 12px;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.settings-range input[type="range"] {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
 .settings-canvas-count {
   display: flex;
   align-items: center;
