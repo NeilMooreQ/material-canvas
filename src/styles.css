@@ -500,6 +500,12 @@ img {
   flex: 0 0 auto;
 }
 
+.github-label {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 900;
+}
+
 .github-stars {
   display: inline-flex;
   align-items: center;
@@ -517,6 +523,39 @@ img {
 
 .github-stars span {
   color: var(--text);
+}
+
+.creator-link {
+  opacity: 0.5;
+  display: inline-flex;
+  align-items: center;
+  height: 42px;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: 0;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 120ms ease;
+}
+
+.creator-link strong {
+  margin-left: 4px;
+  color: var(--text);
+  font-weight: 900;
+}
+
+.creator-link:hover,
+.creator-link:focus-visible {
+  color: var(--accent-strong);
+  outline: none;
+  opacity: 1;
+}
+
+.creator-link:hover strong,
+.creator-link:focus-visible strong {
+  color: var(--accent-strong);
 }
 
 .settings-button.is-active,
@@ -893,7 +932,7 @@ svg {
   top: 14px;
   left: 14px;
   display: grid;
-  min-width: 118px;
+  min-width: 132px;
   gap: 3px;
   padding: 9px 10px;
   font-size: 12px;
@@ -901,13 +940,15 @@ svg {
   line-height: 1.25;
 }
 
-.viewport-count {
+.viewport-attribution {
+  position: absolute;
+  z-index: 36;
   left: 14px;
   bottom: 14px;
-  padding: 8px 10px;
-  color: var(--accent-strong);
-  font-size: 12px;
-  font-weight: 900;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  pointer-events: auto;
 }
 
 .focus-mode-hint {

@@ -10,6 +10,7 @@ const MAX_SEARCH_HISTORY = 10;
 const MAX_UNDO_STEPS = 30;
 const GITHUB_REPOSITORY_URL = "https://github.com/NeilMooreQ/material-canvas";
 const GITHUB_REPOSITORY_API_URL = "https://api.github.com/repos/NeilMooreQ/material-canvas";
+const AUTHOR_LINKEDIN_URL = "https://www.linkedin.com/in/neilmoorexyz/";
 
 const CARD_W = 180;
 const CARD_H = 238;
@@ -234,6 +235,7 @@ const UI_TEXT = {
     noMatches: "No matches",
     visible: "Visible",
     inCanvas: "On canvas",
+    total: "Total",
     assets: "assets",
     asset: "asset",
     profiles: "Profiles",
@@ -319,6 +321,7 @@ const UI_TEXT = {
     noMatches: "Совпадений нет",
     visible: "Видно",
     inCanvas: "В канвасе",
+    total: "Всего",
     assets: "assets",
     asset: "asset",
     profiles: "Профили",
@@ -2127,18 +2130,30 @@ export default function App() {
             {t.focusModeHint}
           </div>
         )}
-        {!focusMode && (
-          <>
-            <div className="viewport-hud viewport-stats" aria-label="Положение канваса">
-              <span>Zoom: {viewportStats.zoom}</span>
-              <span>X: {viewportStats.x}</span>
-              <span>Y: {viewportStats.y}</span>
-            </div>
-            <div className="viewport-hud viewport-count" aria-label="Количество ассетов">
-              {t.visible}: {visibleAssetCount.toLocaleString("ru-RU")} / {activeAssetCount.toLocaleString("ru-RU")}
-            </div>
-          </>
-        )}
+      {!focusMode && (
+        <>
+          <div className="viewport-hud viewport-stats" aria-label="Положение канваса">
+            <span>Zoom: {viewportStats.zoom}</span>
+            <span>X: {viewportStats.x}</span>
+            <span>Y: {viewportStats.y}</span>
+            <span>{t.visible}: {visibleAssetCount.toLocaleString("ru-RU")}</span>
+            <span>{t.total}: {activeAssetCount.toLocaleString("ru-RU")}</span>
+          </div>
+          <div className="viewport-attribution" aria-label="Project links">
+            <GitHubButton t={t} language={language} />
+            <a
+              className="creator-link"
+              href={AUTHOR_LINKEDIN_URL}
+              target="_blank"
+              rel="noreferrer"
+              title="Created by Neil Moore"
+              aria-label="Created by Neil Moore"
+            >
+              <strong>@neilmoorexyz</strong>
+            </a>
+          </div>
+        </>
+      )}
         <div className="viewport-actions" aria-label="Навигация по канвасу">
           <div className="viewport-top-actions">
             <div className="shortcuts-anchor">
@@ -2329,7 +2344,6 @@ function Toolbar({
       </form>
 
       <div className="toolbar-controls">
-        <GitHubButton t={t} language={language} />
         <button
           className={`icon-button profiles-button ${profilesOpen ? "is-active" : ""}`}
           type="button"
