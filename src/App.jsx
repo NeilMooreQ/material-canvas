@@ -18,6 +18,8 @@ const CELL_H = 278;
 const GRID_COLS = 26;
 const NOTE_H = 72;
 const GROUP_GAP = 104;
+const GROUP_COLUMN_GAP = 520;
+const CATEGORY_GRID_COLS = 3;
 const VIEWPORT_OVERSCAN_PX = 520;
 const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 4.25;
@@ -57,6 +59,7 @@ const DEFAULT_SETTINGS = {
   hideUnpurchased: true,
   enabledTypes: ["material"],
   categoryFilter: "",
+  categoryLayoutMode: "grid",
   removePinnedOnDrag: true,
   showOriginalTitle: false,
   pinnedFan: false,
@@ -212,6 +215,12 @@ const LANGUAGE_OPTIONS = [
   { value: "ru", label: "Русский" },
 ];
 
+const CATEGORY_LAYOUT_MODES = [
+  { value: "grid", labelKey: "categoryLayoutGrid" },
+  { value: "column", labelKey: "categoryLayoutColumn" },
+  { value: "row", labelKey: "categoryLayoutRow" },
+];
+
 const UI_TEXT = {
   en: {
     loadError: "Data load failed",
@@ -251,6 +260,10 @@ const UI_TEXT = {
     assetTypes: "Asset types",
     subcategory: "Subcategory",
     allSubcategories: "All subcategories",
+    categoryLayout: "Category layout",
+    categoryLayoutGrid: "Grid",
+    categoryLayoutColumn: "Column",
+    categoryLayoutRow: "Row",
     hideUnpurchased: "Hide unpurchased assets",
     removePinnedOnDrag: "Remove from pinned when dragged out",
     showOriginalTitle: "Show original title",
@@ -332,6 +345,10 @@ const UI_TEXT = {
     assetTypes: "Типы ассетов",
     subcategory: "Подкатегория",
     allSubcategories: "Все подкатегории",
+    categoryLayout: "Расположение категорий",
+    categoryLayoutGrid: "Сетка",
+    categoryLayoutColumn: "Столбец",
+    categoryLayoutRow: "Строка",
     hideUnpurchased: "Скрыть не купленные",
     removePinnedOnDrag: "Убирать из Pinned при вытаскивании",
     showOriginalTitle: "Показывать оригинальный title",
@@ -519,6 +536,10 @@ function normalizeLanguage(language) {
   return LANGUAGE_OPTIONS.some(option => option.value === language) ? language : DEFAULT_SETTINGS.language;
 }
 
+function normalizeCategoryLayoutMode(mode) {
+  return CATEGORY_LAYOUT_MODES.some(option => option.value === mode) ? mode : DEFAULT_SETTINGS.categoryLayoutMode;
+}
+
 function normalizeKeyboardPanSpeed(speed) {
   const numericSpeed = Number(speed);
   if (!Number.isFinite(numericSpeed)) return DEFAULT_SETTINGS.keyboardPanSpeed;
@@ -630,6 +651,7 @@ function sanitizeProfile(profile, assetById, fallbackName = DEFAULT_PROFILE_NAME
       hideUnpurchased: settings.hideUnpurchased ?? DEFAULT_SETTINGS.hideUnpurchased,
       enabledTypes: normalizeEnabledTypes(settings.enabledTypes),
       categoryFilter: String(settings.categoryFilter || ""),
+      categoryLayoutMode: normalizeCategoryLayoutMode(settings.categoryLayoutMode),
       removePinnedOnDrag: settings.removePinnedOnDrag ?? DEFAULT_SETTINGS.removePinnedOnDrag,
       showOriginalTitle: settings.showOriginalTitle ?? DEFAULT_SETTINGS.showOriginalTitle,
       pinnedFan: settings.pinnedFan ?? DEFAULT_SETTINGS.pinnedFan,
@@ -805,7 +827,8 @@ function readProfilesFromPayload(payload, assetById) {
   return rawProfiles.map((profile, index) => sanitizeProfile(profile, assetById, `Импорт ${index + 1}`));
 }
 
-function buildLayout(assets) {
+function buildLayout(assets, categoryLayoutMode = DEFAULT_SETTINGS.categoryLayoutMode) {
+  const normalizedLayoutMode = normalizeCategoryLayoutMode(categoryLayoutMode);
   const groupMap = new Map();
   for (const asset of assets) {
     const key = asset.categoryPath || asset.categoryShort || asset.listingType;
@@ -834,12 +857,53 @@ function buildLayout(assets) {
       }),
     }));
 
+  const groupSectionWidth = GRID_COLS * CELL_W - (CELL_W - CARD_W);
+  const preparedGroups = groups.map(group => ({
+    ...group,
+    rows: Math.ceil(group.assets.length / GRID_COLS),
+  })).map(group => ({
+    ...group,
+    width: groupSectionWidth,
+    height: NOTE_H + 18 + group.rows * CELL_H,
+  }));
+
+  const placedGroups = [];
+  if (normalizedLayoutMode === "column") {
+    let y = 0;
+    for (const group of preparedGroups) {
+      placedGroups.push({ ...group, x: 0, y });
+      y += group.height + GROUP_GAP;
+    }
+  } else if (normalizedLayoutMode === "row") {
+    let x = 0;
+    for (const group of preparedGroups) {
+      placedGroups.push({ ...group, x, y: 0 });
+      x += group.width + GROUP_COLUMN_GAP;
+    }
+  } else {
+    let y = 0;
+    for (let rowStart = 0; rowStart < preparedGroups.length; rowStart += CATEGORY_GRID_COLS) {
+      const rowGroups = preparedGroups.slice(rowStart, rowStart + CATEGORY_GRID_COLS);
+      const rowHeight = rowGroups.reduce((height, group) => Math.max(height, group.height), 0);
+      rowGroups.forEach((group, col) => {
+        placedGroups.push({
+          ...group,
+          x: col * (groupSectionWidth + GROUP_COLUMN_GAP),
+          y,
+        });
+      });
+      y += rowHeight + GROUP_GAP;
+    }
+  }
+
   const assetPositions = new Map();
   const notes = [];
-  let y = 0;
+  let layoutWidth = groupSectionWidth;
+  let layoutHeight = 1000;
 
-  for (const group of groups) {
-    const noteY = y;
+  for (const group of placedGroups) {
+    const noteX = group.x;
+    const noteY = group.y;
     notes.push({
       id: `note-${group.id}`,
       groupId: group.id,
@@ -847,36 +911,36 @@ function buildLayout(assets) {
       assetType: group.assetType,
       listingType: group.listingType,
       count: group.assets.length,
-      x: 0,
+      x: noteX,
       y: noteY,
-      width: GRID_COLS * CELL_W - (CELL_W - CARD_W),
+      width: group.width,
       height: NOTE_H,
     });
 
     const startY = noteY + NOTE_H + 18;
-    const rows = Math.ceil(group.assets.length / GRID_COLS);
+    group.startX = noteX;
     group.noteY = noteY;
     group.startY = startY;
-    group.rows = rows;
     group.assets.forEach((asset, index) => {
       const col = index % GRID_COLS;
       const row = Math.floor(index / GRID_COLS);
       assetPositions.set(asset.id, {
-        x: col * CELL_W,
+        x: noteX + col * CELL_W,
         y: startY + row * CELL_H,
         groupId: group.id,
       });
     });
 
-    y = startY + rows * CELL_H + GROUP_GAP;
+    layoutWidth = Math.max(layoutWidth, group.x + group.width);
+    layoutHeight = Math.max(layoutHeight, group.y + group.height);
   }
 
   return {
-    groups,
+    groups: placedGroups,
     notes,
     assetPositions,
-    width: GRID_COLS * CELL_W,
-    height: Math.max(y, 1000),
+    width: layoutWidth,
+    height: Math.max(layoutHeight + GROUP_GAP, 1000),
   };
 }
 
@@ -898,11 +962,15 @@ function intersectsRect(x, y, width, height, bounds) {
 
 function getVisibleLayoutAssetEntries(layout, bounds) {
   const entries = [];
-  const minCol = clamp(Math.floor((bounds.left - CARD_W) / CELL_W), 0, GRID_COLS - 1);
-  const maxCol = clamp(Math.floor(bounds.right / CELL_W), 0, GRID_COLS - 1);
 
   for (const group of layout.groups) {
-    if (!group.rows || group.startY + group.rows * CELL_H < bounds.top || group.startY > bounds.bottom) continue;
+    if (!group.rows
+      || group.startX + group.width < bounds.left
+      || group.startX > bounds.right
+      || group.startY + group.rows * CELL_H < bounds.top
+      || group.startY > bounds.bottom) continue;
+    const minCol = clamp(Math.floor((bounds.left - CARD_W - group.startX) / CELL_W), 0, GRID_COLS - 1);
+    const maxCol = clamp(Math.floor((bounds.right - group.startX) / CELL_W), 0, GRID_COLS - 1);
     const minRow = clamp(Math.floor((bounds.top - CARD_H - group.startY) / CELL_H), 0, group.rows - 1);
     const maxRow = clamp(Math.floor((bounds.bottom - group.startY) / CELL_H), 0, group.rows - 1);
 
@@ -912,7 +980,7 @@ function getVisibleLayoutAssetEntries(layout, bounds) {
       for (let col = minCol; col <= maxCol; col += 1) {
         const asset = group.assets[rowOffset + col];
         if (!asset) continue;
-        const x = col * CELL_W;
+        const x = group.startX + col * CELL_W;
         if (!intersectsRect(x, y, CARD_W, CARD_H, bounds)) continue;
         entries.push({ asset, x, y, groupId: group.id });
       }
@@ -943,6 +1011,7 @@ export default function App() {
   const [hideUnpurchased, setHideUnpurchased] = useState(DEFAULT_SETTINGS.hideUnpurchased);
   const [enabledTypes, setEnabledTypes] = useState(() => new Set(DEFAULT_SETTINGS.enabledTypes));
   const [categoryFilter, setCategoryFilter] = useState(DEFAULT_SETTINGS.categoryFilter);
+  const [categoryLayoutMode, setCategoryLayoutMode] = useState(DEFAULT_SETTINGS.categoryLayoutMode);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -1087,7 +1156,7 @@ export default function App() {
     }));
   }, [activeQuery, filteredBaseAssets]);
 
-  const layout = useMemo(() => buildLayout(activeAssets), [activeAssets]);
+  const layout = useMemo(() => buildLayout(activeAssets, categoryLayoutMode), [activeAssets, categoryLayoutMode]);
   const searchMatches = useMemo(() => {
     if (!activeQuery) return [];
     return activeAssets
@@ -1129,7 +1198,7 @@ export default function App() {
     }
     setNextMatchIndex(0);
     setCurrentFocusId("");
-  }, [activeQuery, categoryFilter, enabledTypes, hideUnpurchased]);
+  }, [activeQuery, categoryFilter, categoryLayoutMode, enabledTypes, hideUnpurchased]);
 
   const viewportBounds = useMemo(() => {
     const pad = VIEWPORT_OVERSCAN_PX / view.scale;
@@ -1166,6 +1235,13 @@ export default function App() {
     setToast(message);
   }, []);
 
+  const changeCategoryLayoutMode = useCallback((mode) => {
+    const normalizedMode = normalizeCategoryLayoutMode(mode);
+    if (normalizedMode === categoryLayoutMode) return;
+    setCategoryLayoutMode(normalizedMode);
+    setView(DEFAULT_VIEW);
+  }, [categoryLayoutMode]);
+
   const applyProfileToState = useCallback((profile) => {
     undoStackRef.current = [];
     skipNextSearchResetRef.current = true;
@@ -1173,6 +1249,7 @@ export default function App() {
     setHideUnpurchased(profile.settings.hideUnpurchased);
     setEnabledTypes(new Set(profile.settings.enabledTypes));
     setCategoryFilter(profile.settings.categoryFilter);
+    setCategoryLayoutMode(normalizeCategoryLayoutMode(profile.settings.categoryLayoutMode));
     setRemovePinnedOnDrag(profile.settings.removePinnedOnDrag);
     setShowOriginalTitle(profile.settings.showOriginalTitle);
     setPinnedFan(profile.settings.pinnedFan);
@@ -1221,6 +1298,7 @@ export default function App() {
         hideUnpurchased,
         enabledTypes: normalizeEnabledTypes(Array.from(enabledTypes)),
         categoryFilter,
+        categoryLayoutMode,
         removePinnedOnDrag,
         showOriginalTitle,
         pinnedFan,
@@ -1238,7 +1316,7 @@ export default function App() {
         currentFocusId,
       }, assetById),
     };
-  }, [activeQuery, assetById, categoryFilter, currentFocusId, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, keyboardPanSpeed, language, lightweightCards, nextMatchIndex, pinnedFan, pinnedIds, queryInput, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
+  }, [activeQuery, assetById, categoryFilter, categoryLayoutMode, currentFocusId, enabledTypes, freeCopies, freeCopySeq, hideUnpurchased, keyboardPanSpeed, language, lightweightCards, nextMatchIndex, pinnedFan, pinnedIds, queryInput, removePinnedOnDrag, showOriginalTitle, staticGridBackground, theme, view]);
 
   const mergeCurrentIntoProfiles = useCallback((profileList, savedAt = Date.now()) => {
     if (!activeProfileId) return profileList;
@@ -1284,6 +1362,7 @@ export default function App() {
         hideUnpurchased,
         enabledTypes: normalizeEnabledTypes(Array.from(enabledTypes)),
         categoryFilter,
+        categoryLayoutMode,
         removePinnedOnDrag,
         showOriginalTitle,
         pinnedFan,
@@ -1302,7 +1381,7 @@ export default function App() {
     applyProfileToState(profile);
     writeProfileStore(next, profile.id);
     showToast(t.profileCreated(profile.name));
-  }, [applyProfileToState, categoryFilter, enabledTypes, hideUnpurchased, keyboardPanSpeed, language, lightweightCards, mergeCurrentIntoProfiles, pinnedFan, profileNameInput, profiles, removePinnedOnDrag, showOriginalTitle, showToast, staticGridBackground, t, theme, view]);
+  }, [applyProfileToState, categoryFilter, categoryLayoutMode, enabledTypes, hideUnpurchased, keyboardPanSpeed, language, lightweightCards, mergeCurrentIntoProfiles, pinnedFan, profileNameInput, profiles, removePinnedOnDrag, showOriginalTitle, showToast, staticGridBackground, t, theme, view]);
 
   const loadProfile = useCallback((profileId) => {
     const target = profiles.find(profile => profile.id === profileId);
@@ -1925,6 +2004,8 @@ export default function App() {
         categoryFilter={categoryFilter}
         setCategoryFilter={setCategoryFilter}
         categories={categories}
+        categoryLayoutMode={categoryLayoutMode}
+        setCategoryLayoutMode={changeCategoryLayoutMode}
         hideUnpurchased={hideUnpurchased}
         setHideUnpurchased={setHideUnpurchased}
         removePinnedOnDrag={removePinnedOnDrag}
@@ -2131,6 +2212,8 @@ function Toolbar({
   categoryFilter,
   setCategoryFilter,
   categories,
+  categoryLayoutMode,
+  setCategoryLayoutMode,
   hideUnpurchased,
   setHideUnpurchased,
   removePinnedOnDrag,
@@ -2299,6 +2382,8 @@ function Toolbar({
             categoryFilter={categoryFilter}
             setCategoryFilter={setCategoryFilter}
             categories={categories}
+            categoryLayoutMode={categoryLayoutMode}
+            setCategoryLayoutMode={setCategoryLayoutMode}
             hideUnpurchased={hideUnpurchased}
             setHideUnpurchased={setHideUnpurchased}
             removePinnedOnDrag={removePinnedOnDrag}
@@ -2477,6 +2562,8 @@ function SettingsPanel({
   categoryFilter,
   setCategoryFilter,
   categories,
+  categoryLayoutMode,
+  setCategoryLayoutMode,
   hideUnpurchased,
   setHideUnpurchased,
   removePinnedOnDrag,
@@ -2542,6 +2629,19 @@ function SettingsPanel({
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </optgroup>
+          ))}
+        </select>
+      </label>
+
+      <label className="settings-section">
+        <strong>{t.categoryLayout}</strong>
+        <select
+          value={categoryLayoutMode}
+          aria-label={t.categoryLayout}
+          onChange={event => setCategoryLayoutMode(normalizeCategoryLayoutMode(event.target.value))}
+        >
+          {CATEGORY_LAYOUT_MODES.map(option => (
+            <option key={option.value} value={option.value}>{t[option.labelKey]}</option>
           ))}
         </select>
       </label>
