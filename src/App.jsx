@@ -21,6 +21,8 @@ const GROUP_GAP = 104;
 const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 4.25;
 const COMPACT_CARD_ZOOM = 0.37;
+const ARROW_PAN_SPEED = 720;
+const ARROW_PAN_KEYS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
 const DEFAULT_VIEW = { x: 32, y: 34, scale: 0.78 };
 const DEFAULT_SETTINGS = {
   hideUnpurchased: true,
@@ -245,6 +247,7 @@ const UI_TEXT = {
       { keys: "F", label: "Toggle focus mode" },
       { keys: "/", label: "Show or hide shortcuts" },
       { keys: "E", label: "Toggle lightweight cards" },
+      { keys: "Arrow keys", label: "Move around the canvas" },
       { keys: "Ctrl+Z", label: "Undo last canvas action" },
       { keys: "1-9", label: "Load profile by list order" },
     ],
@@ -323,6 +326,7 @@ const UI_TEXT = {
       { keys: "F", label: "Включить или выключить режим фокуса" },
       { keys: "/", label: "Показать или скрыть горячие клавиши" },
       { keys: "E", label: "Включить или выключить легкие карточки" },
+      { keys: "Стрелки", label: "Передвигаться по canvas" },
       { keys: "Ctrl+Z", label: "Отменить последнее действие на канвасе" },
       { keys: "1-9", label: "Загрузить профиль по порядку в списке" },
     ],
@@ -810,6 +814,9 @@ function compareAssetCanvasOrder(a, b, assetPositions) {
 export default function App() {
   const viewportRef = useRef(null);
   const panRef = useRef(null);
+  const arrowPanKeysRef = useRef(new Set());
+  const arrowPanFrameRef = useRef(0);
+  const arrowPanLastAtRef = useRef(0);
   const freeDragRef = useRef(null);
   const handDragRef = useRef(null);
   const handRef = useRef(null);
@@ -1385,6 +1392,53 @@ export default function App() {
     showToast(t.undoApplied);
   }, [restoreBoardSnapshot, showToast, t]);
 
+  const stopArrowPan = useCallback(() => {
+    arrowPanKeysRef.current.clear();
+    arrowPanLastAtRef.current = 0;
+    if (arrowPanFrameRef.current) {
+      window.cancelAnimationFrame(arrowPanFrameRef.current);
+      arrowPanFrameRef.current = 0;
+    }
+  }, []);
+
+  const stepArrowPan = useCallback((timestamp) => {
+    const keys = arrowPanKeysRef.current;
+    if (!keys.size) {
+      arrowPanFrameRef.current = 0;
+      arrowPanLastAtRef.current = 0;
+      return;
+    }
+
+    const lastTimestamp = arrowPanLastAtRef.current || timestamp;
+    const deltaSeconds = Math.min(0.05, Math.max(0, (timestamp - lastTimestamp) / 1000));
+    arrowPanLastAtRef.current = timestamp;
+
+    let xDirection = 0;
+    let yDirection = 0;
+    if (keys.has("ArrowLeft")) xDirection += 1;
+    if (keys.has("ArrowRight")) xDirection -= 1;
+    if (keys.has("ArrowUp")) yDirection += 1;
+    if (keys.has("ArrowDown")) yDirection -= 1;
+
+    const length = Math.hypot(xDirection, yDirection);
+    if (length > 0 && deltaSeconds > 0) {
+      const distance = ARROW_PAN_SPEED * deltaSeconds;
+      setView(prev => ({
+        ...prev,
+        x: prev.x + (xDirection / length) * distance,
+        y: prev.y + (yDirection / length) * distance,
+      }));
+    }
+
+    arrowPanFrameRef.current = window.requestAnimationFrame(stepArrowPan);
+  }, []);
+
+  const startArrowPan = useCallback(() => {
+    if (!arrowPanFrameRef.current) {
+      arrowPanFrameRef.current = window.requestAnimationFrame(stepArrowPan);
+    }
+  }, [stepArrowPan]);
+
   useEffect(() => {
     function isEditableTarget(target) {
       return target?.closest?.("input, textarea, select, [contenteditable='true']");
@@ -1392,6 +1446,12 @@ export default function App() {
 
     function handleHotkey(event) {
       const key = event.key.toLowerCase();
+      if (!event.ctrlKey && !event.metaKey && !event.altKey && ARROW_PAN_KEYS.has(event.key) && !isEditableTarget(event.target)) {
+        event.preventDefault();
+        arrowPanKeysRef.current.add(event.key);
+        startArrowPan();
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && !event.shiftKey && (key === "z" || event.code === "KeyZ") && !isEditableTarget(event.target)) {
         event.preventDefault();
         undoLastAction();
@@ -1442,9 +1502,24 @@ export default function App() {
       }
     }
 
+    function handleKeyUp(event) {
+      if (!ARROW_PAN_KEYS.has(event.key)) return;
+      arrowPanKeysRef.current.delete(event.key);
+      if (!arrowPanKeysRef.current.size) {
+        stopArrowPan();
+      }
+    }
+
     window.addEventListener("keydown", handleHotkey);
-    return () => window.removeEventListener("keydown", handleHotkey);
-  }, [goToNextMatch, loadProfile, profiles, resetView, undoLastAction]);
+    window.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", stopArrowPan);
+    return () => {
+      window.removeEventListener("keydown", handleHotkey);
+      window.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", stopArrowPan);
+      stopArrowPan();
+    };
+  }, [goToNextMatch, loadProfile, profiles, resetView, startArrowPan, stopArrowPan, undoLastAction]);
 
   const togglePinned = useCallback((assetId) => {
     pushUndoSnapshot();

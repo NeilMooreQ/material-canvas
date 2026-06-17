@@ -27,6 +27,7 @@ Material Canvas is a static React/Vite reference board for browsing a large Quix
 - `F` toggles Focus mode.
 - `/` opens or closes the shortcuts panel.
 - `E` toggles lightweight cards.
+- Arrow keys move around the canvas while held.
 - `Ctrl+Z` undoes the last canvas action.
 - `1-9` loads profiles by list order.
 
