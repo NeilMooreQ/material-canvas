@@ -1030,6 +1030,7 @@ svg {
 .group-note {
   position: absolute;
   --note-accent: var(--accent);
+  contain: layout paint style;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1115,6 +1116,7 @@ svg {
   position: absolute;
   --asset-accent: var(--accent);
   --asset-tint: rgba(88, 196, 255, 0.1);
+  contain: layout paint style;
   width: var(--card-w);
   height: var(--card-h);
   overflow: hidden;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 const DATA_URL = `${import.meta.env.BASE_URL}data/assets.json`;
 const LEGACY_STORAGE_KEY = "quixel-asset-canvas-react-v2";
@@ -18,6 +18,7 @@ const CELL_H = 278;
 const GRID_COLS = 26;
 const NOTE_H = 72;
 const GROUP_GAP = 104;
+const VIEWPORT_OVERSCAN_PX = 520;
 const MIN_ZOOM = 0.12;
 const MAX_ZOOM = 4.25;
 const COMPACT_CARD_ZOOM = 0.37;
@@ -838,6 +839,7 @@ function buildLayout(assets) {
   let y = 0;
 
   for (const group of groups) {
+    const noteY = y;
     notes.push({
       id: `note-${group.id}`,
       groupId: group.id,
@@ -846,12 +848,16 @@ function buildLayout(assets) {
       listingType: group.listingType,
       count: group.assets.length,
       x: 0,
-      y,
+      y: noteY,
       width: GRID_COLS * CELL_W - (CELL_W - CARD_W),
       height: NOTE_H,
     });
 
-    const startY = y + NOTE_H + 18;
+    const startY = noteY + NOTE_H + 18;
+    const rows = Math.ceil(group.assets.length / GRID_COLS);
+    group.noteY = noteY;
+    group.startY = startY;
+    group.rows = rows;
     group.assets.forEach((asset, index) => {
       const col = index % GRID_COLS;
       const row = Math.floor(index / GRID_COLS);
@@ -862,7 +868,6 @@ function buildLayout(assets) {
       });
     });
 
-    const rows = Math.ceil(group.assets.length / GRID_COLS);
     y = startY + rows * CELL_H + GROUP_GAP;
   }
 
@@ -882,6 +887,39 @@ function compareAssetCanvasOrder(a, b, assetPositions) {
   const yDelta = posA.y - posB.y;
   if (Math.abs(yDelta) > 1) return yDelta;
   return posA.x - posB.x || a.title.localeCompare(b.title) || a.id.localeCompare(b.id);
+}
+
+function intersectsRect(x, y, width, height, bounds) {
+  return x + width >= bounds.left
+    && x <= bounds.right
+    && y + height >= bounds.top
+    && y <= bounds.bottom;
+}
+
+function getVisibleLayoutAssetEntries(layout, bounds) {
+  const entries = [];
+  const minCol = clamp(Math.floor((bounds.left - CARD_W) / CELL_W), 0, GRID_COLS - 1);
+  const maxCol = clamp(Math.floor(bounds.right / CELL_W), 0, GRID_COLS - 1);
+
+  for (const group of layout.groups) {
+    if (!group.rows || group.startY + group.rows * CELL_H < bounds.top || group.startY > bounds.bottom) continue;
+    const minRow = clamp(Math.floor((bounds.top - CARD_H - group.startY) / CELL_H), 0, group.rows - 1);
+    const maxRow = clamp(Math.floor((bounds.bottom - group.startY) / CELL_H), 0, group.rows - 1);
+
+    for (let row = minRow; row <= maxRow; row += 1) {
+      const rowOffset = row * GRID_COLS;
+      const y = group.startY + row * CELL_H;
+      for (let col = minCol; col <= maxCol; col += 1) {
+        const asset = group.assets[rowOffset + col];
+        if (!asset) continue;
+        const x = col * CELL_W;
+        if (!intersectsRect(x, y, CARD_W, CARD_H, bounds)) continue;
+        entries.push({ asset, x, y, groupId: group.id });
+      }
+    }
+  }
+
+  return entries;
 }
 
 export default function App() {
@@ -926,6 +964,7 @@ export default function App() {
   const [toast, setToast] = useState("");
   const [handGhost, setHandGhost] = useState(null);
   const [windowWidth, setWindowWidth] = useState(() => typeof window === "undefined" ? 1280 : window.innerWidth);
+  const [viewportSize, setViewportSize] = useState({ width: 1280, height: 720 });
   const [pinnedIds, setPinnedIds] = useState(() => new Set());
   const [freeCopies, setFreeCopies] = useState([]);
   const [freeCopySeq, setFreeCopySeq] = useState(1);
@@ -970,6 +1009,29 @@ export default function App() {
     }
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
+  }, []);
+
+  useEffect(() => {
+    const viewport = viewportRef.current;
+    if (!viewport) return undefined;
+
+    const updateViewportSize = () => {
+      const rect = viewport.getBoundingClientRect();
+      setViewportSize(prev => (
+        Math.abs(prev.width - rect.width) < 0.5 && Math.abs(prev.height - rect.height) < 0.5
+          ? prev
+          : { width: rect.width, height: rect.height }
+      ));
+    };
+
+    updateViewportSize();
+    const observer = new ResizeObserver(updateViewportSize);
+    observer.observe(viewport);
+    window.addEventListener("resize", updateViewportSize);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateViewportSize);
+    };
   }, []);
 
   const typeCounts = useMemo(() => {
@@ -1033,6 +1095,16 @@ export default function App() {
       .sort((a, b) => compareAssetCanvasOrder(a, b, layout.assetPositions));
   }, [activeAssets, activeQuery, layout.assetPositions]);
   const searchMatchSet = useMemo(() => new Set(searchMatches.map(asset => asset.id)), [searchMatches]);
+  const searchGroupMatchCounts = useMemo(() => {
+    if (!activeQuery) return new Map();
+    const counts = new Map();
+    for (const asset of activeAssets) {
+      if (!asset.isSearchMatch) continue;
+      const key = asset.categoryPath || asset.categoryShort || asset.listingType;
+      counts.set(key, (counts.get(key) || 0) + 1);
+    }
+    return counts;
+  }, [activeAssets, activeQuery]);
   const searchSuggestion = useMemo(() => {
     const currentWord = queryInput.match(/[\p{L}\p{N}]+$/u)?.[0] || "";
     const normalizedWord = normalizeText(currentWord);
@@ -1060,40 +1132,25 @@ export default function App() {
   }, [activeQuery, categoryFilter, enabledTypes, hideUnpurchased]);
 
   const viewportBounds = useMemo(() => {
-    const rect = viewportRef.current?.getBoundingClientRect();
-    if (!rect) return { left: -500, top: -500, right: 1600, bottom: 1200 };
-    const pad = 520 / view.scale;
+    const pad = VIEWPORT_OVERSCAN_PX / view.scale;
     return {
       left: -view.x / view.scale - pad,
       top: -view.y / view.scale - pad,
-      right: (rect.width - view.x) / view.scale + pad,
-      bottom: (rect.height - view.y) / view.scale + pad,
+      right: (viewportSize.width - view.x) / view.scale + pad,
+      bottom: (viewportSize.height - view.y) / view.scale + pad,
     };
-  }, [view]);
+  }, [view, viewportSize]);
 
-  const visibleAssets = useMemo(() => {
-    return activeAssets.filter(asset => {
-      const pos = layout.assetPositions.get(asset.id);
-      if (!pos) return false;
-      return pos.x + CARD_W >= viewportBounds.left
-        && pos.x <= viewportBounds.right
-        && pos.y + CARD_H >= viewportBounds.top
-        && pos.y <= viewportBounds.bottom;
-    });
-  }, [activeAssets, layout.assetPositions, viewportBounds]);
+  const visibleAssetEntries = useMemo(() => (
+    getVisibleLayoutAssetEntries(layout, viewportBounds)
+  ), [layout, viewportBounds]);
 
   const visibleNotes = useMemo(() => {
-    return layout.notes.filter(note => note.x + note.width >= viewportBounds.left
-      && note.x <= viewportBounds.right
-      && note.y + note.height >= viewportBounds.top
-      && note.y <= viewportBounds.bottom);
+    return layout.notes.filter(note => intersectsRect(note.x, note.y, note.width, note.height, viewportBounds));
   }, [layout.notes, viewportBounds]);
 
   const visibleFreeCopies = useMemo(() => {
-    return freeCopies.filter(copy => copy.x + CARD_W >= viewportBounds.left
-      && copy.x <= viewportBounds.right
-      && copy.y + CARD_H >= viewportBounds.top
-      && copy.y <= viewportBounds.bottom);
+    return freeCopies.filter(copy => intersectsRect(copy.x, copy.y, CARD_W, CARD_H, viewportBounds));
   }, [freeCopies, viewportBounds]);
 
   const setTypeEnabled = useCallback((type) => {
@@ -1825,7 +1882,7 @@ export default function App() {
     ? `${t.next} ${nextMatchDisplayIndex}/${searchMatches.length}`
     : t.search;
 
-  const visibleAssetCount = visibleAssets.length;
+  const visibleAssetCount = visibleAssetEntries.length;
   const activeAssetCount = activeAssets.length;
   const viewportZoom = scaleToVisualZoom(view.scale);
   const isCompactCardZoom = focusMode || lightweightCards || view.scale <= COMPACT_CARD_ZOOM;
@@ -1928,21 +1985,18 @@ export default function App() {
                     t={t}
                     language={language}
                     activeQuery={activeQuery}
-                    searchMatchCount={activeQuery
-                      ? activeAssets.filter(asset => asset.categoryPath === note.title && asset.isSearchMatch).length
-                  : null}
+                    searchMatchCount={activeQuery ? searchGroupMatchCounts.get(note.title) || 0 : null}
               />
             ))}
           </div>
           <div className="grid-layer">
-            {visibleAssets.map(asset => {
-              const pos = layout.assetPositions.get(asset.id);
+            {visibleAssetEntries.map(({ asset, x, y }) => {
               return (
                 <AssetCard
                   key={asset.id}
                   asset={asset}
-                  x={pos.x}
-                  y={pos.y}
+                  x={x}
+                  y={y}
                   kind="grid"
                   isPinned={pinnedIds.has(asset.id)}
                   hasSearch={Boolean(activeQuery)}
@@ -1952,8 +2006,8 @@ export default function App() {
                   language={language}
                   isCompact={isCompactCardZoom}
                   t={t}
-                  onTogglePinned={() => togglePinned(asset.id)}
-                  onDuplicate={() => duplicateAsset(asset.id)}
+                  onTogglePinned={togglePinned}
+                  onDuplicate={duplicateAsset}
                 />
               );
             })}
@@ -1977,9 +2031,11 @@ export default function App() {
                   language={language}
                   isCompact={isCompactCardZoom}
                   t={t}
-                  onTogglePinned={() => togglePinned(asset.id)}
-                  onDelete={() => deleteFreeCopy(copy.copyId)}
-                  onPointerDown={(event) => startFreeDrag(event, copy)}
+                  onTogglePinned={togglePinned}
+                  onDelete={deleteFreeCopy}
+                  onStartFreeDrag={startFreeDrag}
+                  dragCopy={copy}
+                  copyId={copy.copyId}
                 />
               );
             })}
@@ -2588,7 +2644,7 @@ function SettingsPanel({
   );
 }
 
-function GroupNote({ note, t, language, activeQuery, searchMatchCount }) {
+const GroupNote = memo(function GroupNote({ note, t, language, activeQuery, searchMatchCount }) {
   return (
     <section
       className={`group-note note-group-${note.listingType}`}
@@ -2601,9 +2657,9 @@ function GroupNote({ note, t, language, activeQuery, searchMatchCount }) {
       <span>{activeQuery ? `${searchMatchCount} / ${note.count}` : `${note.count} ${note.count === 1 ? t.asset : t.assets}`}</span>
     </section>
   );
-}
+});
 
-function AssetCard({
+const AssetCard = memo(function AssetCard({
   asset,
   x,
   y,
@@ -2619,7 +2675,9 @@ function AssetCard({
   onTogglePinned,
   onDuplicate,
   onDelete,
-  onPointerDown,
+  onStartFreeDrag,
+  dragCopy,
+  copyId,
 }) {
   const className = [
     "asset-card",
@@ -2635,6 +2693,19 @@ function AssetCard({
     transform: `translate(${x}px, ${y}px)`,
     "--asset-preview": `url(${JSON.stringify(asset.preview || "")})`,
   };
+  const handleTogglePinned = useCallback(() => {
+    onTogglePinned?.(asset.id);
+  }, [asset.id, onTogglePinned]);
+  const handleDuplicate = useCallback(() => {
+    onDuplicate?.(asset.id);
+  }, [asset.id, onDuplicate]);
+  const handleDelete = useCallback(() => {
+    onDelete?.(copyId);
+  }, [copyId, onDelete]);
+  const handlePointerDown = useCallback((event) => {
+    if (!onStartFreeDrag || !dragCopy) return;
+    onStartFreeDrag(event, dragCopy);
+  }, [dragCopy, onStartFreeDrag]);
   const openAsset = useCallback((event) => {
     const target = event.target;
     if (target instanceof Element && target.closest("button, a")) return;
@@ -2650,7 +2721,7 @@ function AssetCard({
         style={cardStyle}
         data-asset-url={asset.url}
         title={primaryTitle}
-        onPointerDown={onPointerDown}
+        onPointerDown={handlePointerDown}
         onDoubleClick={openAsset}
       />
     );
@@ -2661,7 +2732,7 @@ function AssetCard({
       className={className}
       style={cardStyle}
       data-asset-url={asset.url}
-      onPointerDown={onPointerDown}
+      onPointerDown={handlePointerDown}
       onDoubleClick={openAsset}
     >
       <div className="card-title">
@@ -2674,22 +2745,23 @@ function AssetCard({
           src={asset.preview}
           alt=""
           draggable="false"
-          loading="eager"
+          loading="lazy"
           decoding="async"
+          fetchPriority="low"
           referrerPolicy="no-referrer"
         />
       </div>
       <div className="card-footer">
         <div className="card-actions">
-          <button className={`card-icon star-button ${isPinned ? "is-pinned" : ""}`} type="button" title={t.pin} aria-label={t.pin} onClick={onTogglePinned}>
+          <button className={`card-icon star-button ${isPinned ? "is-pinned" : ""}`} type="button" title={t.pin} aria-label={t.pin} onClick={handleTogglePinned}>
             <StarIcon />
           </button>
           {kind === "free" ? (
-            <button className="card-icon delete-button" type="button" title={t.deleteDuplicate} aria-label={t.deleteDuplicate} onClick={onDelete}>
+            <button className="card-icon delete-button" type="button" title={t.deleteDuplicate} aria-label={t.deleteDuplicate} onClick={handleDelete}>
               <TrashIcon />
             </button>
           ) : (
-            <button className="card-icon duplicate-button" type="button" title={t.duplicate} aria-label={t.duplicate} onClick={onDuplicate}>
+            <button className="card-icon duplicate-button" type="button" title={t.duplicate} aria-label={t.duplicate} onClick={handleDuplicate}>
               <CopyIcon />
             </button>
           )}
@@ -2700,7 +2772,7 @@ function AssetCard({
       </div>
     </article>
   );
-}
+});
 
 function Hand({ handRef, pinnedIds, assetById, windowWidth, showOriginalTitle, language, pinnedFan, onRemove, onDragStart, t }) {
   const hoverTimeoutRef = useRef(null);
